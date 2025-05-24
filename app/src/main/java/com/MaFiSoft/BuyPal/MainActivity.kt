@@ -1,31 +1,47 @@
+// app/src/main/java/com/MaFiSoft/BuyPal/MainActivity.kt - gemini
 package com.MaFiSoft.BuyPal
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import com.MaFiSoft.BuyPal.ui.theme.BuyPalTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            BuyPalApp()
+            BuyPalTheme {
+                // A surface container using the 'background' color from the theme
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    Greeting("Codemagic Build!")
+                }
+            }
         }
     }
 }
 
 @Composable
-fun BuyPalApp() {
-    MaterialTheme {
-        Text("Hello, Jetpack Compose!")
-    }
+fun Greeting(name: String, modifier: Modifier = Modifier) {
+    Text(
+        text = "Hello $name!",
+        modifier = modifier
+    )
 }
 
-@Preview
+@Preview(showBackground = true)
 @Composable
-fun BuyPalAppPreview() {
-    BuyPalApp()
+fun GreetingPreview() {
+    BuyPalTheme {
+        Greeting("Android")
+    }
 }
