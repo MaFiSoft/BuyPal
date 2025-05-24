@@ -5,14 +5,8 @@ workflows:
     instance_type: mac_mini_m1
     environment:
       java: 17
-      groups:
-        - android_signing
       vars:
-        GRADLE_TASK: ":app:assembleRelease"
-        ANDROID_KEYSTORE_PATH: "/tmp/keystore.keystore"
-        ANDROID_KEYSTORE_PASSWORD: "your_keystore_password"
-        ANDROID_KEY_ALIAS: "your_key_alias"
-        ANDROID_KEY_PASSWORD: "your_key_password"
+        GRADLE_TASK: ":app:assembleDebug"
     scripts:
       - name: Check Java version
         script: |
