@@ -1,9 +1,8 @@
-// app/build.gradle.kts - gemini
+// app/build.gradle.kts - gemini (Korrigiert für Kommentarzeichen)
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
-    // NEU: Compose Compiler Plugin hier anwenden
     id("org.jetbrains.kotlin.plugin.compose") 
 }
 
@@ -35,24 +34,26 @@ android {
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.1_8 // Hier java.lang.Enum statt int Literal
+        targetCompatibility = JavaVersion.VERSION_1_8 // Wieder VERSION_1_8 für Konsistenz mit Source, oder 1_8.
     }
     kotlinOptions {
         jvmTarget = "1.8"
         // Compose Compiler Free Args sind jetzt durch das Plugin abgedeckt, können entfernt werden
+        // Diese Zeilen müssen mit '//' kommentiert oder entfernt werden:
         // freeCompilerArgs += listOf(
-        #     "-P", "plugin:androidx.compose.compiler.plugins.kotlin:reportsDestination=$project.buildDir/compose_metrics",
-        #     "-P", "plugin:androidx.compose.compiler.plugins.kotlin:metricsDestination=$project.buildDir/compose_metrics"
-        # )
+        //     "-P", "plugin:androidx.compose.compiler.plugins.kotlin:reportsDestination=$project.buildDir/compose_metrics",
+        //     "-P", "plugin:androidx.compose.compiler.plugins.kotlin:metricsDestination=$project.buildDir/compose_metrics"
+        // )
     }
     buildFeatures {
         viewBinding = true
-        compose = true // Dies bleibt, um Compose-APIs zu aktivieren
+        compose = true 
     }
     // ComposeOptions werden nicht mehr hier gesetzt, da das Plugin dies übernimmt
+    // Diese Zeilen müssen mit '//' kommentiert oder entfernt werden:
     // composeOptions {
-    #     kotlinCompilerExtensionVersion = "1.5.15" 
-    # }
+    //     kotlinCompilerExtensionVersion = "1.5.15" 
+    // }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -66,12 +67,12 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
     // Jetpack Compose - Core
-    implementation("androidx.activity:activity-compose:1.9.0")
     implementation(platform("androidx.compose:compose-bom:2024.05.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.activity:activity-compose:1.9.0") // activity-compose nach platform bom
 
     // Room (für Datenbank-Persistenz)
     implementation("androidx.room:room-runtime:2.6.1")
