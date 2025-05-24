@@ -1,4 +1,4 @@
-#!/usr/bin/env sh - gemini
+#!/usr/bin/env sh
 #
 # Copyright 2011-2016 the original author or authors.
 #
