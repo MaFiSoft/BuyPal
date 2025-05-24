@@ -23,12 +23,16 @@ workflows:
       - name: Download and Prepare Gradle Wrapper
         script: |
           rm -f gradle/wrapper/gradle-wrapper.jar
-          rm -rf gradle/wrapper/dists/* if [ ! -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+          rm -rf gradle/wrapper/dists/*
+          
+          # Sicherstellen, dass die gradle-wrapper.properties existiert
+          if [ ! -f "gradle/wrapper/gradle-wrapper.properties" ]; then
             echo "ERROR: gradle/wrapper/gradle-wrapper.properties not found!"
             exit 1
           fi
           
-          GRADLE_DIST_URL=$(grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties | cut -d'=' -f2 | tr -d '\r\n') # Updated grep and tr
+          # Die `distributionUrl` aus der properties-Datei extrahieren
+          GRADLE_DIST_URL=$(grep '^distributionUrl=' gradle/wrapper/gradle-wrapper.properties | cut -d'=' -f2 | tr -d '\r\n')
 
           # DEBUG: Print the extracted URL
           echo "DEBUG: Extracted Gradle Distribution URL: '${GRADLE_DIST_URL}'"
