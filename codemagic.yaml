@@ -6,7 +6,7 @@ workflows:
     environment:
       java: 17
       vars:
-        GRADLE_TASK: ":app:assembleDebug"
+        GRADLE_TASK: ":app:assembleDebug" # Geändert zu Debug-Build
     scripts:
       - name: Check Java version
         script: |
