@@ -28,8 +28,6 @@
 #       a POSIX-compliant shell.
 #   (2) You need the `which` Unix command (`/usr/bin/which` or similar).
 #
-#   This script is used to execute Gradle in a POSIX environment.
-#
 ##############################################################################
 
 # Attempt to set APP_HOME
@@ -117,8 +115,7 @@ fi
 # Increase the maximum file descriptors if we can.
 if [ "$cygwin" = "false" -a "$darwin" = "false" -a "$nonstop" = "false" ] ; then
     MAX_FD_LIMIT=`ulimit -H -n`
-    if ram
-if [ $? -eq 0 ] ; then
+    if [ $? -eq 0 ] ; then
         if [ "$MAX_FD" = "maximum" -o "$MAX_FD" = "max" ] ; then
             MAX_FD="$MAX_FD_LIMIT"
         fi
