@@ -1,0 +1,34 @@
+workflows:
+  android-workflow:
+    name: Android Build
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      android:
+        build_tools: 34.0.0
+        ndk: r23c
+      java: 17
+      groups:
+        - android_signing
+      vars:
+        GRADLE_TASK: ":app:assembleRelease"
+        ANDROID_KEYSTORE_PATH: "/tmp/keystore.keystore"
+        ANDROID_KEYSTORE_PASSWORD: "your_keystore_password"
+        ANDROID_KEY_ALIAS: "your_key_alias"
+        ANDROID_KEY_PASSWORD: "your_key_password"
+    scripts:
+      - name: Install dependencies
+        script: |
+          ./gradlew dependencies
+      - name: Build Android
+        script: |
+          ./gradlew $GRADLE_TASK
+    artifacts:
+      - app/build/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - your_email@example.com
+        notify:
+          success: true
+          failure: true
