@@ -8,8 +8,8 @@ workflows:
       groups:
         - android
       vars:
-        # GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=1g" # Entfernen wir vorerst für maximale Isolation
-        # ANDROID_SDK_LICENSES: true # Nicht mehr nötig, da wir es manuell akzeptieren
+        # Diesen Eintrag wieder hinzufügen, damit der 'vars' Block nicht leer ist
+        GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=1g" 
 
     triggering:
       branch_patterns:
@@ -17,12 +17,10 @@ workflows:
           include: true
           
     scripts:
-      - name: Environment Setup and Diagnostics # <-- NEU: Kombinierter Setup-Schritt
+      - name: Environment Setup and Diagnostics
         script: |
           echo "--- Starting Environment Setup and Diagnostics ---"
           
-          # Sicherstellen, dass der Standard-PATH gelöscht wird, um Konflikte zu vermeiden
-          # und dann nur notwendige Pfade hinzufügen
           export PATH="" # Leert den PATH komplett
           echo "PATH cleared: $PATH"
 
@@ -44,7 +42,6 @@ workflows:
           mv /tmp/android-sdk/cmdline-tools/latest/cmdline-tools/* /tmp/android-sdk/cmdline-tools/latest/
           
           export ANDROID_HOME=/tmp/android-sdk
-          # Wichtig: Android SDK Tools zuerst im PATH, um sdkmanager zu finden
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH"
           echo "ANDROID_HOME set to: $ANDROID_HOME"
           echo "PATH after Android SDK setup: $PATH"
@@ -70,49 +67,38 @@ workflows:
 
           unzip -o "$GRADLE_ZIP" -d /tmp
           export GRADLE_HOME="/tmp/gradle-$GRADLE_VERSION"
-          # Wichtig: Unser globales Gradle ganz vorne im PATH
           export PATH="$GRADLE_HOME/bin:$PATH"
           
           echo "PATH after global Gradle setup: $PATH"
-          gradle --version # Sollte jetzt 8.7 sein
+          gradle --version
           echo "Gradle $GRADLE_VERSION installed globally."
 
           # Jetzt alle Exports in $CM_ENV schreiben
           echo "JAVA_HOME=$JAVA_HOME" >> $CM_ENV
           echo "ANDROID_HOME=$ANDROID_HOME" >> $CM_ENV
           echo "GRADLE_HOME=$GRADLE_HOME" >> $CM_ENV
-          echo "PATH=$PATH" >> $CM_ENV # Exportiert den finalen PATH
+          echo "PATH=$PATH" >> $CM_ENV
           echo "--- Environment Setup Complete ---"
 
-      - name: Prepare and Generate Gradle Wrapper # <-- NEU: Fokus auf sauberen Wrapper
+      - name: Prepare and Generate Gradle Wrapper
         script: |
           echo "--- Preparing and Generating Gradle Wrapper ---"
           
-          # Sehr aggressive Reinigung des Gradle Wrapper Caches und der Dists
           echo "Aggressively cleaning Gradle Wrapper caches and distributions..."
-          rm -rf ~/.gradle/caches/modules-2/files-2.1/com.android.tools.build/gradle/ # Löscht spezifischen AGP Cache
-          rm -rf ~/.gradle/wrapper/dists/* # Globaler Wrapper Dists Cache
-          rm -rf gradle/wrapper/dists/* # Lokaler Wrapper Dists Cache (im Projekt)
-          rm -f gradle/wrapper/gradle-wrapper.jar # Löscht die Wrapper JAR im Projekt
+          rm -rf ~/.gradle/caches/modules-2/files-2.1/com.android.tools.build/gradle/
+          rm -rf ~/.gradle/wrapper/dists/*
+          rm -rf gradle/wrapper/dists/*
+          rm -f gradle/wrapper/gradle-wrapper.jar
 
-          # Sicherstellen, dass gradlew ausführbar ist
           chmod +x gradlew
           echo "gradlew is now executable."
 
-          # Überprüfe die gradle-wrapper.properties
           if [ ! -f "gradle/wrapper/gradle-wrapper.properties" ]; then
             echo "ERROR: gradle/wrapper/gradle-wrapper.properties not found! This file must exist in your repository."
             exit 1
           fi
 
-          # Stelle sicher, dass die properties-Datei die korrekte URL hat
-          # Ich nehme an, dass die Datei im Repo schon auf 8.7 steht, da wir es im letzten Build gesehen haben
-          # Wenn nicht, könnte man hier eine Sed-Operation einfügen
-          # Beispiel: sed -i '' 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip|g' gradle/wrapper/gradle-wrapper.properties
-
           echo "Generating Gradle wrapper with version 8.7..."
-          # Generiere den Wrapper, um sicherzustellen, dass die JAR korrekt ist
-          # Nutze den explizit installierten 'gradle'-Befehl
           gradle wrapper --gradle-version 8.7 --distribution-type all
           
           echo "Contents of gradle/wrapper/:"
