@@ -8,7 +8,6 @@ workflows:
       groups:
         - android
       vars:
-        # Diesen Eintrag wieder hinzufügen, damit der 'vars' Block nicht leer ist
         GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=1g" 
 
     triggering:
@@ -21,12 +20,13 @@ workflows:
         script: |
           echo "--- Starting Environment Setup and Diagnostics ---"
           
-          export PATH="" # Leert den PATH komplett
-          echo "PATH cleared: $PATH"
+          # NICHT MEHR: export PATH=""
+          # Stattdessen fügen wir unsere Pfade am Anfang des bestehenden PATH hinzu
+          echo "Initial PATH: $PATH"
 
           # 1. Java Setup
           export JAVA_HOME=$(/usr/libexec/java_home -v 17)
-          export PATH="$JAVA_HOME/bin:$PATH"
+          export PATH="$JAVA_HOME/bin:$PATH" # Pfad an den Anfang hinzufügen
           echo "JAVA_HOME set to: $JAVA_HOME"
           java -version
           echo "PATH after Java setup: $PATH"
@@ -42,6 +42,7 @@ workflows:
           mv /tmp/android-sdk/cmdline-tools/latest/cmdline-tools/* /tmp/android-sdk/cmdline-tools/latest/
           
           export ANDROID_HOME=/tmp/android-sdk
+          # Wichtig: Android SDK Tools zuerst im PATH hinzufügen
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH"
           echo "ANDROID_HOME set to: $ANDROID_HOME"
           echo "PATH after Android SDK setup: $PATH"
@@ -67,7 +68,7 @@ workflows:
 
           unzip -o "$GRADLE_ZIP" -d /tmp
           export GRADLE_HOME="/tmp/gradle-$GRADLE_VERSION"
-          export PATH="$GRADLE_HOME/bin:$PATH"
+          export PATH="$GRADLE_HOME/bin:$PATH" # Unser globales Gradle ganz vorne im PATH
           
           echo "PATH after global Gradle setup: $PATH"
           gradle --version
