@@ -20,9 +20,10 @@ workflows:
       - name: Validate gradlew syntax
         script: |
           bash -n gradlew || exit 1
-      - name: Initialize Gradle Wrapper
+      - name: Download Gradle Wrapper JAR
         script: |
-          ./gradlew wrapper --gradle-version 8.4 || echo "Wrapper initialization failed, continuing with existing wrapper"
+          mkdir -p gradle/wrapper
+          curl -L -o gradle/wrapper/gradle-wrapper.jar https://repo1.maven.org/maven2/org/gradle/gradle-wrapper/8.4/gradle-wrapper-8.4.jar
       - name: Install dependencies
         script: |
           ./gradlew dependencies
