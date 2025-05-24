@@ -4,9 +4,6 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m1
     environment:
-      android:
-        build_tools: 34.0.0
-        ndk: r23c
       java: 17
       groups:
         - android_signing
