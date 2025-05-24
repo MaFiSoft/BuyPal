@@ -8,11 +8,19 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.myapp"
+        applicationId = "com.MaFiSoft.BuyPal"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Required for Room schema export
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments += mapOf("room.schemaLocation" to "$projectDir/schemas")
+            }
+        }
     }
 
     buildTypes {
@@ -39,7 +47,7 @@ android {
         kotlinCompilerExtensionVersion = "1.5.15"
     }
 
-    namespace = "com.example.myapp"
+    namespace = "com.MaFiSoft.BuyPal"
 }
 
 dependencies {
@@ -55,4 +63,8 @@ dependencies {
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.2")
+
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }
