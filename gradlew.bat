@@ -1,4 +1,4 @@
-@rem gemini
+@rem
 @rem Copyright 2011-2016 the original author or authors.
 @rem
 @rem Licensed under the Apache License, Version 2.0 (the "License");
@@ -58,7 +58,7 @@ if exist "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" goto init
 
 echo.
 echo ERROR: Could not find gradle wrapper within Gradle distribution.
-echo Please ensure you have downloaded the full distribution.
+echo Please ensure you have downloaded the full distribution or run 'gradlew wrapper --gradle-version ^<version^>' to generate it.
 echo.
 goto fail
 
@@ -66,45 +66,7 @@ goto fail
 @rem Get command-line arguments, if any
 set CMD_LINE_ARGS=%*
 
-call "%APP_HOME%\gradle\wrapper\gradle-wrapper.properties" :setWrapperProperties
-@rem Wrapper properties defined
-
 set CLASSPATH=%APP_HOME%\gradle\wrapper\gradle-wrapper.jar
-
-@rem Setup Gradle properties for version resolution if the jar is missing
-if not exist "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" (
-    for /f "tokens=*" %%a in ('findstr /b "distributionUrl=" "%APP_HOME%\gradle\wrapper\gradle-wrapper.properties"') do (
-        set "DISTRIBUTION_URL=%%a"
-    )
-    set "DISTRIBUTION_URL=%DISTRIBUTION_URL:distributionUrl=%"
-    set "DISTRIBUTION_FILENAME="
-    for %%f in ("%DISTRIBUTION_URL%") do (
-        set "DISTRIBUTION_FILENAME=%%~nxf"
-    )
-    set "LOCAL_DISTRIBUTION_PATH=%APP_HOME%\gradle\wrapper\%DISTRIBUTION_FILENAME%"
-
-    if not exist "%LOCAL_DISTRIBUTION_PATH%" (
-        echo Downloading Gradle distribution from: %DISTRIBUTION_URL%
-        curl -L -o "%LOCAL_DISTRIBUTION_PATH%" "%DISTRIBUTION_URL%" || (
-            echo ERROR: Failed to download Gradle distribution from %DISTRIBUTION_URL%
-            goto fail
-        )
-    )
-
-    @rem Unpack the distribution if it's a zip file
-    if "%LOCAL_DISTRIBUTION_PATH:*.zip=%" NEQ "%LOCAL_DISTRIBUTION_PATH%" (
-        echo Unpacking Gradle distribution...
-        for /f "tokens=1 delims=-" %%a in ("%DISTRIBUTION_FILENAME%") do (
-            set "GRADLE_VERSION=%%a"
-        )
-        set "UNPACK_DIR=%APP_HOME%\gradle\wrapper\dists\%GRADLE_VERSION%"
-        if not exist "%UNPACK_DIR%" mkdir "%UNPACK_DIR%"
-        tar -xf "%LOCAL_DISTRIBUTION_PATH%" -C "%UNPACK_DIR%" || (
-            echo ERROR: Failed to unpack Gradle distribution.
-            goto fail
-        )
-    )
-)
 
 "%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% -classpath "%CLASSPATH%" org.gradle.wrapper.GradleWrapperMain %CMD_LINE_ARGS%
 
@@ -117,14 +79,3 @@ exit 1
 
 :mainEnd
 if "%OS%"=="Windows_NT" endlocal
-
-@rem Helper to extract wrapper properties.
-:setWrapperProperties
-for /f "tokens=1* delims==" %%A in ('type "%APP_HOME%\gradle\wrapper\gradle-wrapper.properties"') do (
-    if /i "%%A"=="distributionUrl" set "_distributionUrl=%%B"
-    if /i "%%A"=="distributionBase" set "_distributionBase=%%B"
-    if /i "%%A"=="distributionPath" set "_distributionPath=%%B"
-    if /i "%%A"=="zipStoreBase" set "_zipStoreBase=%%B"
-    if /i "%%A"=="zipStorePath" set "_zipStorePath=%%B"
-)
-exit /b
