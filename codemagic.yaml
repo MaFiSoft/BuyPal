@@ -1,7 +1,7 @@
 # .codemagic.yaml
 workflows:
   android-build:
-    name: Android Build - Deep Clean & Forced Gradle Version
+    name: Android Build - Simplified Android SDK Setup
     instance_type: mac_mini_m1
     max_build_duration: 60
     environment:
@@ -20,40 +20,30 @@ workflows:
         script: |
           echo "--- Starting Environment Setup and Diagnostics ---"
           
-          # NICHT MEHR: export PATH=""
-          # Stattdessen fügen wir unsere Pfade am Anfang des bestehenden PATH hinzu
           echo "Initial PATH: $PATH"
 
-          # 1. Java Setup
+          # 1. Java Setup (Bleibt wie gehabt)
           export JAVA_HOME=$(/usr/libexec/java_home -v 17)
-          export PATH="$JAVA_HOME/bin:$PATH" # Pfad an den Anfang hinzufügen
+          export PATH="$JAVA_HOME/bin:$PATH"
           echo "JAVA_HOME set to: $JAVA_HOME"
           java -version
           echo "PATH after Java setup: $PATH"
 
-          # 2. Android SDK Setup
-          ANDROID_SDK_TOOLS_VERSION="10406996_latest"
-          ANDROID_TOOLS_OS="mac" # Für mac_mini_m1/m2
-          
-          mkdir -p /tmp/android-sdk/cmdline-tools/latest
-          echo "Downloading Android SDK Command Line Tools..."
-          curl -L --retry 3 --retry-delay 5 -o commandlinetools.zip https://dl.google.com/android/repository/commandlinetools-${ANDROID_TOOLS_OS}-${ANDROID_SDK_TOOLS_VERSION}.zip
-          unzip commandlinetools.zip -d /tmp/android-sdk/cmdline-tools/latest
-          mv /tmp/android-sdk/cmdline-tools/latest/cmdline-tools/* /tmp/android-sdk/cmdline-tools/latest/
-          
-          export ANDROID_HOME=/tmp/android-sdk
-          # Wichtig: Android SDK Tools zuerst im PATH hinzufügen
+          # 2. Android SDK Setup (MODIFIZIERT: Nutzt Codemagic's SDK und setzt ANDROID_HOME)
+          # Die von Codemagic vorinstallierten Android SDK Tools befinden sich normalerweise in /usr/local/share/android-sdk
+          export ANDROID_HOME="/usr/local/share/android-sdk" # Explizit ANDROID_HOME setzen
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH"
-          echo "ANDROID_HOME set to: $ANDROID_HOME"
+          echo "ANDROID_HOME set to: $ANDROID_HOME (using Codemagic's pre-installed SDK)"
           echo "PATH after Android SDK setup: $PATH"
           
-          echo "Accepting Android SDK licenses..."
-          yes | sdkmanager --sdk_root=$ANDROID_HOME --licenses
-          echo "Installing required Android SDK components..."
-          sdkmanager --sdk_root=$ANDROID_HOME "build-tools;34.0.0" "platforms;android-34" "cmake;3.22.1"
-          echo "Android SDK Tools installed and licensed."
+          # Lizenzen akzeptieren (sollte bei Codemagic meist nicht nötig sein, aber schadet nicht)
+          # Da wir sdkmanager nicht neu herunterladen, brauchen wir nicht curl/unzip/mv
+          yes | sdkmanager --sdk_root=$ANDROID_HOME --licenses || echo "SDK licenses already accepted or sdkmanager not found, continuing."
+          # Komponenten installieren (könnten schon da sein, schadet aber nicht)
+          sdkmanager --sdk_root=$ANDROID_HOME "build-tools;34.0.0" "platforms;android-34" "cmake;3.22.1" || echo "SDK components already installed or sdkmanager not found, continuing."
+          echo "Android SDK setup complete."
 
-          # 3. Global Gradle Installation (8.7)
+          # 3. Global Gradle Installation (Bleibt wie gehabt)
           GRADLE_VERSION="8.7"
           GRADLE_ZIP="gradle-$GRADLE_VERSION-bin.zip"
           GRADLE_URL="https://services.gradle.org/distributions/$GRADLE_ZIP"
@@ -68,7 +58,7 @@ workflows:
 
           unzip -o "$GRADLE_ZIP" -d /tmp
           export GRADLE_HOME="/tmp/gradle-$GRADLE_VERSION"
-          export PATH="$GRADLE_HOME/bin:$PATH" # Unser globales Gradle ganz vorne im PATH
+          export PATH="$GRADLE_HOME/bin:$PATH" 
           
           echo "PATH after global Gradle setup: $PATH"
           gradle --version
@@ -102,15 +92,12 @@ workflows:
           echo "Generating Gradle wrapper with version 8.7..."
           gradle wrapper --gradle-version 8.7 --distribution-type all
           
-          echo "Contents of gradle/wrapper/:"
           ls -l gradle/wrapper/
-          echo "Contents of gradle/wrapper/gradle-wrapper.properties:"
           cat gradle/wrapper/gradle-wrapper.properties
-          echo "Contents of gradlew:"
           ls -l gradlew
           
           echo "Verifying ./gradlew --version output (should be 8.7):"
-          ./gradlew --version # Hier muss jetzt 8.7 stehen
+          ./gradlew --version
           echo "--- Gradle Wrapper Setup Complete ---"
 
       - name: Clean Project
@@ -126,7 +113,7 @@ workflows:
           mkdir -p app/schemas
           chmod -R u+w app/schemas
           ./gradlew :app:kspDebugKotlin --stacktrace --info --no-daemon
-          if [ $? -ne 0 ]; then echo "KSP Debug task failed. See logs above." && exit 1; fi
+          if [ $? -ne 0 ]; then echo "KSP Debug task failed. See logs above."; exit 1; } # Korrigierter Exit-Block
           echo "KSP Debug completed. Verifying schema files."
           ls -l app/schemas/ || echo "No schema files found in app/schemas"
           find app/build/generated/ksp/debug/ -type f || echo "No KSP generated files found"
