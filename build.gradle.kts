@@ -2,7 +2,7 @@ buildscript {
     repositories {
         google()
         mavenCentral()
-        gradlePluginPortal() // Hinzugefügt für KSP
+        maven { url = uri("https://plugins.gradle.org/m2/") } // Ersetzt gradlePluginPortal()
     }
     dependencies {
         classpath("com.android.tools.build:gradle:8.5.2")
