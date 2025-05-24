@@ -2,29 +2,31 @@
 workflows:
   android-build:
     name: Android Build with KSP & Gradle Wrapper Generation
-    instance_type: mac_mini_m1 # Oder ein anderer Build-Host, z.B. mac_pro_xcode_14
+    # Die Instanz ist korrekt
+    instance_type: mac_mini_m1
+    
     environment:
-      android_sdk_licenses: true
-      java_tool_options: -Xmx4096m
+      # Alle Umgebungsvariablen und JVM-Optionen werden jetzt unter 'vars' deklariert.
+      # 'android_sdk_licenses' wird hier als Variable behandelt, Codemagic erkennt das.
       vars:
-        # Hier könnten weitere Umgebungsvariablen definiert werden
-        # z.B. für API-Schlüssel, die nicht im Code sind
+        ANDROID_SDK_LICENSES: true
+        JAVA_TOOL_OPTIONS: -Xmx4096m
+        # Hier könnten weitere benutzerdefinierte Umgebungsvariablen definiert werden
         # MY_API_KEY: $MY_API_KEY_SECRET # Geheimnis, das in Codemagic UI definiert wird
+    
     triggering:
       branch_patterns:
         - pattern: main
           include: true
+          
     scripts:
       - name: Make gradlew executable
         script: |
-          # Stellt sicher, dass das gradlew-Skript ausführbar ist
           chmod +x gradlew
           echo "gradlew is now executable."
       - name: Regenerate Gradle Wrapper
         script: |
-          # Löscht vorhandenen Wrapper (falls doch versehentlich im Repo) und generiert ihn neu
           rm -f gradle/wrapper/gradle-wrapper.jar
-          # Erzwingt die Generierung des Wrappers für die definierte Gradle Version (8.4)
           ./gradlew wrapper --gradle-version 8.4 --distribution-type all
           echo "Gradle Wrapper regenerated successfully."
       - name: Set Android SDK path
@@ -37,12 +39,20 @@ workflows:
       - name: Build Android Release APK
         script: |
           ./gradlew assembleRelease
+          
     artifacts:
       - app/build/outputs/**/*.apk
       - app/build/outputs/**/*.aab
+      
     publishing:
       email:
         recipients:
           - deine.email@example.com # Deine E-Mail-Adresse für Build-Benachrichtigungen
-        success: true
-        failure: true
+        # 'success' und 'failure' sind keine direkten Felder der 'email'-Sektion mehr.
+        # Stattdessen werden Benachrichtigungen normalerweise über die UI oder
+        # erweiterte Skripte gesteuert. Das einfache Vorhandensein der 'recipients'
+        # sollte für grundlegende Benachrichtigungen ausreichen.
+        # Wenn du spezifische success/failure-Benachrichtigungen brauchst,
+        # müsstest du diese in einem Post-Publish-Skript selbst implementieren
+        # oder in der Codemagic UI konfigurieren.
+        # Ich entferne sie, da sie Fehlermeldungen verursachen.
