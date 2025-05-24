@@ -2,6 +2,7 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        gradlePluginPortal() // Hinzugefügt für KSP
     }
     dependencies {
         classpath("com.android.tools.build:gradle:8.5.2")
