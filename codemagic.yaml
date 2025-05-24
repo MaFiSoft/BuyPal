@@ -113,7 +113,10 @@ workflows:
           mkdir -p app/schemas
           chmod -R u+w app/schemas
           ./gradlew :app:kspDebugKotlin --stacktrace --info --no-daemon
-          if [ $? -ne 0 ]; then echo "KSP Debug task failed. See logs above."; exit 1; } # Korrigierter Exit-Block
+          if [ $? -ne 0 ]; then 
+            echo "KSP Debug task failed. See logs above." 
+            exit 1
+          fi # HIER WURDE EIN } ENTFERNT UND EIN fi HINZUGEFÜGT
           echo "KSP Debug completed. Verifying schema files."
           ls -l app/schemas/ || echo "No schema files found in app/schemas"
           find app/build/generated/ksp/debug/ -type f || echo "No KSP generated files found"
