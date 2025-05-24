@@ -65,6 +65,9 @@ dependencies {
     // AndroidX Core und UI
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    
+    // Dies ist die ConstraintLayout Dependency
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4") // Oder eine neuere stabile Version
 
     // Jetpack Compose - Core
     implementation(platform("androidx.compose:compose-bom:2024.05.00"))
