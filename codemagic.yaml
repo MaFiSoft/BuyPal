@@ -17,6 +17,12 @@ workflows:
       - name: Set executable permissions for gradlew
         script: |
           chmod +x gradlew
+      - name: Validate gradlew syntax
+        script: |
+          bash -n gradlew || exit 1
+      - name: Initialize Gradle Wrapper
+        script: |
+          ./gradlew wrapper --gradle-version 8.4 || echo "Wrapper initialization failed, continuing with existing wrapper"
       - name: Install dependencies
         script: |
           ./gradlew dependencies
