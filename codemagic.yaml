@@ -20,15 +20,19 @@ workflows:
       - name: Install dependencies
         script: |
           ./gradlew dependencies
+      - name: Generate Room Schema
+        script: |
+          ./gradlew :app:kspDebugKotlin
       - name: Build Android
         script: |
           ./gradlew $GRADLE_TASK
     artifacts:
       - app/build/outputs/**/*.apk
+      - app/schemas/**/1.json
     publishing:
       email:
         recipients:
-          - your_email@example.com
+          - mafi82290@online.de
         notify:
           success: true
           failure: true
