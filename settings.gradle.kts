@@ -1,3 +1,4 @@
+// settings.gradle.kts - gemini
 pluginManagement {
     repositories {
         google()
@@ -12,5 +13,6 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
+
 rootProject.name = "BuyPal"
 include(":app")
