@@ -2,7 +2,7 @@
 workflows:
   android-build:
     name: Android Build with KSP & Gradle Wrapper Generation
-    instance_type: mac_mini_m2
+    instance_type: mac_mini_m1 # Behält den Instanztyp bei
     
     environment:
       vars:
@@ -17,35 +17,63 @@ workflows:
     scripts:
       - name: Make gradlew executable
         script: |
-          # Dies bleibt, um sicherzustellen, dass das Skript ausführbar ist
           chmod +x gradlew
           echo "gradlew is now executable."
       
-      # Entferne den "Regenerate Gradle Wrapper" Schritt,
-      # da Codemagic dies normalerweise automatisch verwaltet.
-      # Wenn die gradle-wrapper.properties korrekt sind,
-      # sollte Codemagic die JAR selbst herunterladen.
-      
-      - name: Set Android SDK path # Dies ist eher zur Information und Pfadanpassung, nicht essentiell für den Wrapper-Download
+      - name: Ensure Gradle Wrapper is available
         script: |
+          # Löscht vorhandenen Wrapper JAR, um saubere Generierung zu erzwingen
+          rm -f gradle/wrapper/gradle-wrapper.jar
+          
+          # Sicherstellen, dass die gradle-wrapper.properties existiert
+          if [ ! -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            echo "ERROR: gradle/wrapper/gradle-wrapper.properties not found!"
+            exit 1
+          fi
+          
+          # Die `distributionUrl` aus der properties-Datei extrahieren, um sie direkt mit curl zu nutzen
+          # Entferne die Backslashes und trimme Leerzeichen
+          GRADLE_DIST_URL=$(grep 'distributionUrl' gradle/wrapper/gradle-wrapper.properties | cut -d'=' -f2 | tr -d '\r' | sed 's/\\//g')
+          
+          echo "Attempting to download Gradle distribution from: $GRADLE_DIST_URL"
+          
+          # Erstelle den Zielpfad für die ZIP-Datei
+          DIST_DIR="gradle/wrapper/dists"
+          mkdir -p "$DIST_DIR" # Sicherstellen, dass der dists-Ordner existiert
+          
+          # Lade die Gradle-ZIP herunter
+          curl -L -o "$DIST_DIR/gradle-$(grep 'distributionUrl' gradle/wrapper/gradle-wrapper.properties | sed -n 's/.*gradle-\([0-9\.]*\)-\(all\|bin\)\.zip/\1/p')-all.zip" "$GRADLE_DIST_URL"
+          
+          # Prüfe, ob der Download erfolgreich war
+          if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to download Gradle distribution from $GRADLE_DIST_URL"
+            exit 1
+          fi
+          
+          # Nun das Wrapper-Skript ausführen, das die JAR erzeugt
+          # Dies sollte jetzt funktionieren, da die Distribution schon heruntergeladen ist
+          ./gradlew wrapper --gradle-version 8.4 --distribution-type all
+          
+          echo "Gradle Wrapper ensured and regenerated successfully."
+
+      - name: Set Android SDK path
+        script: |
+          # Hier ist das Logfile leer, da die Ausgabe in $CM_ENV umgeleitet wird. Das ist normal.
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $CM_ENV
           echo "PATH=$PATH:$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools" >> $CM_ENV
+          echo "Android SDK paths set." # Optional, um eine Bestätigung ins Log zu schreiben
       
       - name: Clean Project
         script: |
-          # Codemagic erwartet, dass ./gradlew jetzt funktioniert
+          # Jetzt sollte gradlew funktionieren, da der Wrapper vorbereitet wurde
           ./gradlew clean
-          echo "Project cleaned."
+          echo "Project cleaned successfully."
       
-      #- name: Build Android Release APK
-      #  script: |
-      #    ./gradlew assembleRelease
-      #    echo "APK build complete."
-          
       - name: Build Android Debug APK
         script: |
-          ./gradlew assembleDebug # <-- Hier geändert
-          echo "Debug APK build complete."  
+          # Dies sollte jetzt funktionieren, da der Wrapper vorbereitet wurde
+          ./gradlew assembleDebug # Wir bleiben vorerst bei Debug
+          echo "Debug APK build complete."
           
     artifacts:
       - app/build/outputs/**/*.apk
