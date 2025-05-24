@@ -37,10 +37,15 @@ workflows:
           ./gradlew clean
           echo "Project cleaned."
       
-      - name: Build Android Release APK
+      #- name: Build Android Release APK
+      #  script: |
+      #    ./gradlew assembleRelease
+      #    echo "APK build complete."
+          
+      - name: Build Android Debug APK
         script: |
-          ./gradlew assembleRelease
-          echo "APK build complete."
+          ./gradlew assembleDebug # <-- Hier geändert
+          echo "Debug APK build complete."  
           
     artifacts:
       - app/build/outputs/**/*.apk
