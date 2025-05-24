@@ -1,18 +1,13 @@
-# .codemagic.yaml - gemini
+# .codemagic.yaml
 workflows:
   android-build:
     name: Android Build with KSP & Gradle Wrapper Generation
-    # Die Instanz ist korrekt
     instance_type: mac_mini_m1
     
     environment:
-      # Alle Umgebungsvariablen und JVM-Optionen werden jetzt unter 'vars' deklariert.
-      # 'android_sdk_licenses' wird hier als Variable behandelt, Codemagic erkennt das.
       vars:
         ANDROID_SDK_LICENSES: true
         JAVA_TOOL_OPTIONS: -Xmx4096m
-        # Hier könnten weitere benutzerdefinierte Umgebungsvariablen definiert werden
-        # MY_API_KEY: $MY_API_KEY_SECRET # Geheimnis, das in Codemagic UI definiert wird
     
     triggering:
       branch_patterns:
@@ -22,23 +17,30 @@ workflows:
     scripts:
       - name: Make gradlew executable
         script: |
+          # Dies bleibt, um sicherzustellen, dass das Skript ausführbar ist
           chmod +x gradlew
           echo "gradlew is now executable."
-      - name: Regenerate Gradle Wrapper
-        script: |
-          rm -f gradle/wrapper/gradle-wrapper.jar
-          ./gradlew wrapper --gradle-version 8.4 --distribution-type all
-          echo "Gradle Wrapper regenerated successfully."
-      - name: Set Android SDK path
+      
+      # Entferne den "Regenerate Gradle Wrapper" Schritt,
+      # da Codemagic dies normalerweise automatisch verwaltet.
+      # Wenn die gradle-wrapper.properties korrekt sind,
+      # sollte Codemagic die JAR selbst herunterladen.
+      
+      - name: Set Android SDK path # Dies ist eher zur Information und Pfadanpassung, nicht essentiell für den Wrapper-Download
         script: |
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $CM_ENV
           echo "PATH=$PATH:$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools" >> $CM_ENV
+      
       - name: Clean Project
         script: |
+          # Codemagic erwartet, dass ./gradlew jetzt funktioniert
           ./gradlew clean
+          echo "Project cleaned."
+      
       - name: Build Android Release APK
         script: |
           ./gradlew assembleRelease
+          echo "APK build complete."
           
     artifacts:
       - app/build/outputs/**/*.apk
@@ -47,12 +49,4 @@ workflows:
     publishing:
       email:
         recipients:
-          - deine.email@example.com # Deine E-Mail-Adresse für Build-Benachrichtigungen
-        # 'success' und 'failure' sind keine direkten Felder der 'email'-Sektion mehr.
-        # Stattdessen werden Benachrichtigungen normalerweise über die UI oder
-        # erweiterte Skripte gesteuert. Das einfache Vorhandensein der 'recipients'
-        # sollte für grundlegende Benachrichtigungen ausreichen.
-        # Wenn du spezifische success/failure-Benachrichtigungen brauchst,
-        # müsstest du diese in einem Post-Publish-Skript selbst implementieren
-        # oder in der Codemagic UI konfigurieren.
-        # Ich entferne sie, da sie Fehlermeldungen verursachen.
+          - deine.email@example.com
