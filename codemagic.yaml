@@ -2,7 +2,7 @@
 workflows:
   android-build:
     name: Android Build with KSP & Gradle Wrapper Generation
-    instance_type: mac_mini_m1
+    instance_type: mac_mini_m2
     
     environment:
       vars:
