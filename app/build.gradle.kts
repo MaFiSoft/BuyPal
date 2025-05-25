@@ -62,8 +62,10 @@ android {
 }
 
 ksp {
-    // WICHTIG: Fügt das Schema-Export-Verzeichnis für Room hinzu
+    // Dies ist der bereits vorhandene Pfad, den wir uns gemerkt haben
     arg("room.schemaLocation", "$projectDir/schemas")
+    // Fügen Sie DIESE ZEILE HINZU, um den Export explizit zu erzwingen
+    arg("room.exportSchema", "true")
 }
 
 dependencies {
