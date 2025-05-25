@@ -3,7 +3,10 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
-    id("org.jetbrains.kotlin.plugin.compose") 
+    id("org.jetbrains.kotlin.plugin.compose")
+    // BEGINN DER HINZUFÜGUNG FÜR GOOGLE SERVICES PLUGIN
+    id("com.google.gms.google-services") // <-- Diese Zeile hinzufügen/prüfen
+    // ENDE DER HINZUFÜGUNG
 }
 
 android {
