@@ -16,6 +16,15 @@ workflows:
           include: true
           
     scripts:
+      - name: Create google-services.json
+        script: |
+          echo "Creating google-services.json from secure environment variable..."
+          # Stellt sicher, dass das app-Verzeichnis existiert, bevor die Datei geschrieben wird
+          mkdir -p "$CM_BUILD_DIR/app"
+          echo "$GMS_GOOGLE_SERVICES_JSON" > "$CM_BUILD_DIR/app/google-services.json"
+          # Optionale Überprüfung
+          ls -l "$CM_BUILD_DIR/app/google-services.json"
+          echo "google-services.json created successfully."
       - name: Environment Setup and Diagnostics
         script: |
           echo "--- Starting Environment Setup and Diagnostics ---"
