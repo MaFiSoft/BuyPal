@@ -22,6 +22,10 @@ build/
 .gradle-tooling
 .gradle/
 .navigation/
+
+# Firebase Google Services file
+app/google-services.json #
+
 app/build/
 gradle-wrapper.jar # Dies ist hier, damit es NICHT hochgeladen wird!
 !gradle/wrapper/gradle-wrapper.properties # Behalte die properties-Datei, aber nicht die jar
