@@ -61,6 +61,11 @@ android {
     }
 }
 
+ksp {
+    // WICHTIG: Fügt das Schema-Export-Verzeichnis für Room hinzu
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     // AndroidX Core und UI
     implementation("androidx.core:core-ktx:1.13.1")
