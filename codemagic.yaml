@@ -107,7 +107,7 @@ workflows:
           if [ $? -ne 0 ]; then echo "Clean task failed. See logs above." && exit 1; fi
           echo "Project cleaned successfully."
       
-- name: Build KSP Debug
+      - name: Build KSP Debug
         script: |
           echo "--- Running KSP Debug ---"
           mkdir -p app/schemas
@@ -124,7 +124,7 @@ workflows:
           ls -la app/schemas/
           if [ -f "app/schemas/1.json" ]; then
             echo "1.json FOUND in app/schemas/"
-          else
+            else
             echo "1.json NOT FOUND in app/schemas/"
           fi
           # Überprüfe auch den generierten KSP-Output-Ordner
