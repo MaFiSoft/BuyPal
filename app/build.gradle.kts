@@ -103,4 +103,13 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // BEGINN DER HINZUFÜGUNG FÜR FIREBASE SDKs
+    // Firebase Plattform (verwaltet die Versionen der Firebase-Bibliotheken für Kompatibilität)
+    implementation(platform("com.google.firebase:firebase-bom:32.8.1")) // <-- Diese Zeile hinzufügen/prüfen
+    // Firebase Firestore (die Datenbank)
+    implementation("com.google.firebase:firebase-firestore-ktx") // <-- Diese Zeile hinzufügen/prüfen
+    // Firebase Authentication (für die Benutzerverwaltung)
+    implementation("com.google.firebase:firebase-auth-ktx") // <-- Diese Zeile hinzufügen/prüfen
+    // ENDE DER HINZUFÜGUNG
 }
