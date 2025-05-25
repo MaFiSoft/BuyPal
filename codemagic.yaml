@@ -1,3 +1,112 @@
+# .codemagic.yaml
+workflows:
+  android-build:
+    name: Android Build - Simplified Android SDK Setup
+    instance_type: mac_mini_m1
+    max_build_duration: 60
+    environment:
+      groups:
+        - android
+      vars:
+        GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=1g" 
+
+    triggering:
+      branch_patterns:
+        - pattern: main
+          include: true
+          
+    scripts:
+      - name: Environment Setup and Diagnostics
+        script: |
+          echo "--- Starting Environment Setup and Diagnostics ---"
+          
+          echo "Initial PATH: $PATH"
+
+          # 1. Java Setup (Bleibt wie gehabt)
+          export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+          export PATH="$JAVA_HOME/bin:$PATH"
+          echo "JAVA_HOME set to: $JAVA_HOME"
+          java -version
+          echo "PATH after Java setup: $PATH"
+
+          # 2. Android SDK Setup (MODIFIZIERT: Nutzt Codemagic's SDK und setzt ANDROID_HOME)
+          # Die von Codemagic vorinstallierten Android SDK Tools befinden sich normalerweise in /usr/local/share/android-sdk
+          export ANDROID_HOME="/usr/local/share/android-sdk" # Explizit ANDROID_HOME setzen
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH"
+          echo "ANDROID_HOME set to: $ANDROID_HOME (using Codemagic's pre-installed SDK)"
+          echo "PATH after Android SDK setup: $PATH"
+          
+          # Lizenzen akzeptieren (sollte bei Codemagic meist nicht nötig sein, aber schadet nicht)
+          # Da wir sdkmanager nicht neu herunterladen, brauchen wir nicht curl/unzip/mv
+          yes | sdkmanager --sdk_root=$ANDROID_HOME --licenses || echo "SDK licenses already accepted or sdkmanager not found, continuing."
+          # Komponenten installieren (könnten schon da sein, schadet aber nicht)
+          sdkmanager --sdk_root=$ANDROID_HOME "build-tools;34.0.0" "platforms;android-34" "cmake;3.22.1" || echo "SDK components already installed or sdkmanager not found, continuing."
+          echo "Android SDK setup complete."
+
+          # 3. Global Gradle Installation (Bleibt wie gehabt)
+          GRADLE_VERSION="8.7"
+          GRADLE_ZIP="gradle-$GRADLE_VERSION-bin.zip"
+          GRADLE_URL="https://services.gradle.org/distributions/$GRADLE_ZIP"
+          
+          echo "Downloading and installing Gradle $GRADLE_VERSION from: $GRADLE_URL"
+          curl -L --retry 3 --retry-delay 5 -o "$GRADLE_ZIP" "$GRADLE_URL"
+          
+          if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to download Gradle $GRADLE_VERSION from $GRADLE_URL. Curl exit code: $?"
+            exit 1
+          fi
+
+          unzip -o "$GRADLE_ZIP" -d /tmp
+          export GRADLE_HOME="/tmp/gradle-$GRADLE_VERSION"
+          export PATH="$GRADLE_HOME/bin:$PATH" 
+          
+          echo "PATH after global Gradle setup: $PATH"
+          gradle --version
+          echo "Gradle $GRADLE_VERSION installed globally."
+
+          # Jetzt alle Exports in $CM_ENV schreiben
+          echo "JAVA_HOME=$JAVA_HOME" >> $CM_ENV
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $CM_ENV
+          echo "GRADLE_HOME=$GRADLE_HOME" >> $CM_ENV
+          echo "PATH=$PATH" >> $CM_ENV
+          echo "--- Environment Setup Complete ---"
+
+      - name: Prepare and Generate Gradle Wrapper
+        script: |
+          echo "--- Preparing and Generating Gradle Wrapper ---"
+          
+          echo "Aggressively cleaning Gradle Wrapper caches and distributions..."
+          rm -rf ~/.gradle/caches/modules-2/files-2.1/com.android.tools.build/gradle/
+          rm -rf ~/.gradle/wrapper/dists/*
+          rm -rf gradle/wrapper/dists/*
+          rm -f gradle/wrapper/gradle-wrapper.jar
+
+          chmod +x gradlew
+          echo "gradlew is now executable."
+
+          if [ ! -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            echo "ERROR: gradle/wrapper/gradle-wrapper.properties not found! This file must exist in your repository."
+            exit 1
+          fi
+
+          echo "Generating Gradle wrapper with version 8.7..."
+          gradle wrapper --gradle-version 8.7 --distribution-type all
+          
+          ls -l gradle/wrapper/
+          cat gradle/wrapper/gradle-wrapper.properties
+          ls -l gradlew
+          
+          echo "Verifying ./gradlew --version output (should be 8.7):"
+          ./gradlew --version
+          echo "--- Gradle Wrapper Setup Complete ---"
+
+      - name: Clean Project
+        script: |
+          echo "--- Cleaning Project ---"
+          ./gradlew clean --stacktrace --info --no-daemon
+          if [ $? -ne 0 ]; then echo "Clean task failed. See logs above." && exit 1; fi
+          echo "Project cleaned successfully."
+      
 - name: Build KSP Debug
         script: |
           echo "--- Running KSP Debug ---"
@@ -22,3 +131,22 @@
           echo "Contents of app/build/generated/ksp/debug/java/com/MaFiSoft/BuyPal/:"
           ls -la app/build/generated/ksp/debug/java/com/MaFiSoft/BuyPal/ || echo "KSP output folder not found or empty."
           find app/build/generated/ksp/debug/ -type f || echo "No KSP generated files found."
+
+
+      - name: Build Android Debug APK
+        script: |
+          echo "--- Building Android Debug APK ---"
+          ./gradlew assembleDebug --stacktrace --info --no-daemon
+          if [ $? -ne 0 ]; then echo "Assemble Debug task failed. See logs above." && exit 1; fi
+          echo "Debug APK build complete."
+          
+    artifacts:
+      - app/build/outputs/apk/debug/app-debug.apk
+      - app/build/outputs/bundle/debug/app-debug.aab
+      - app/build/generated/ksp/**/*
+      - app/schemas/*.json
+      
+    publishing:
+      email:
+        recipients:
+          - deine.email@example.com
