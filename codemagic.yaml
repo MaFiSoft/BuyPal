@@ -6,7 +6,7 @@ workflows:
     max_build_duration: 60
     environment:
       groups:
-        - android
+        - firebase_secrets
       vars:
         GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=1g" 
 
