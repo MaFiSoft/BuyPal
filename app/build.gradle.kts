@@ -112,4 +112,9 @@ dependencies {
     // Firebase Authentication (für die Benutzerverwaltung)
     implementation("com.google.firebase:firebase-auth-ktx") // <-- Diese Zeile hinzufügen/prüfen
     // ENDE DER HINZUFÜGUNG
+
+    // BEGINN DER HINZUFÜGUNG FÜR GSON
+    implementation("com.google.code.gson:gson:2.10.1") // <-- Diese Zeile hinzufügen
+    // ENDE DER HINZUFÜGUNG
+
 }
