@@ -1,11 +1,11 @@
-// app/build.gradle.kts - gemini (Korrigiert für Kommentarzeichen)
+// app/build.gradle.kts - Bereinigte Version
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("org.jetbrains.kotlin.plugin.compose")
     // BEGINN DER HINZUFÜGUNG FÜR GOOGLE SERVICES PLUGIN
-    id("com.google.gms.google-services") // <-- Diese Zeile hinzufügen/prüfen
+    id("com.google.gms.google-services")
     // ENDE DER HINZUFÜGUNG
 }
 
@@ -37,25 +37,23 @@ android {
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8 // Wieder VERSION_1_8 für Konsistenz mit Source, oder 1_8.
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
     kotlinOptions {
         jvmTarget = "1.8"
-        // Compose Compiler Free Args sind jetzt durch das Plugin abgedeckt, können entfernt werden
-        // Diese Zeilen müssen mit '//' kommentiert oder entfernt werden:
+        // Compose Compiler Free Args sind jetzt durch das Plugin abgedeckt und können entfernt werden
         // freeCompilerArgs += listOf(
-        //     "-P", "plugin:androidx.compose.compiler.plugins.kotlin:reportsDestination=$project.buildDir/compose_metrics",
-        //     "-P", "plugin:androidx.compose.compiler.plugins.kotlin:metricsDestination=$project.buildDir/compose_metrics"
+        //      "-P", "plugin:androidx.compose.compiler.plugins.kotlin:reportsDestination=$project.buildDir/compose_metrics",
+        //      "-P", "plugin:androidx.compose.compiler.plugins.kotlin:metricsDestination=$project.buildDir/compose_metrics"
         // )
     }
     buildFeatures {
         viewBinding = true
-        compose = true 
+        compose = true
     }
     // ComposeOptions werden nicht mehr hier gesetzt, da das Plugin dies übernimmt
-    // Diese Zeilen müssen mit '//' kommentiert oder entfernt werden:
     // composeOptions {
-    //     kotlinCompilerExtensionVersion = "1.5.15" 
+    //      kotlinCompilerExtensionVersion = "1.5.15"
     // }
     packaging {
         resources {
@@ -64,41 +62,30 @@ android {
     }
 }
 
-// <-- HIER DIESEN NEUEN REPOSITORIES-BLOCK HINZUFÜGEN -->
-repositories {
-    google()
-    mavenCentral()
-}
-// <--------------------------------------------------->
-
-
 ksp {
-    // Dies ist der bereits vorhandene Pfad, den wir uns gemerkt haben
     arg("room.schemaLocation", "$projectDir/schemas")
-    // Fügen Sie DIESE ZEILE HINZU, um den Export explizit zu erzwingen
     arg("room.exportSchema", "true")
 }
 
 dependencies {
-    // AndroidX Core und UI
+    // AndroidX Core
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-    
-    // Dies ist die ConstraintLayout Dependency
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4") // Oder eine neuere stabile Version
 
-    // Jetpack Compose - Core
-    implementation(platform("androidx.compose:compose-bom:2023.08.00"))
+    // ConstraintLayout
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+
+    // Jetpack Compose - Core (BOM managed Versions)
+    implementation(platform("androidx.compose:compose-bom:2023.08.00")) // BOM für Compose-Kompatibilität
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.activity:activity-compose:1.9.0") // activity-compose nach platform bom
+    implementation("androidx.activity:activity-compose:1.9.0")
 
     // Room (für Datenbank-Persistenz)
     implementation("androidx.room:room-runtime:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1") // Für Kotlin Coroutines Unterstützung in Room
 
     // Optional: Navigation für Compose
     implementation("androidx.navigation:navigation-compose:2.7.7")
@@ -107,30 +94,24 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2023.08.00"))
+    androidTestImplementation(platform("androidx.compose:compose-bom:2023.08.00")) // BOM auch für Test-Abhängigkeiten
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
-    // BEGINN DER HINZUFÜGUNG FÜR FIREBASE SDKs
-    // Firebase Plattform (verwaltet die Versionen der Firebase-Bibliotheken für Kompatibilität)
-    implementation(platform("com.google.firebase:firebase-bom:32.8.1")) // <-- Diese Zeile hinzufügen/prüfen
-    // Firebase Firestore (die Datenbank)
-    implementation("com.google.firebase:firebase-firestore-ktx") // <-- Diese Zeile hinzufügen/prüfen
-    // Firebase Authentication (für die Benutzerverwaltung)
-    implementation("com.google.firebase:firebase-auth-ktx") // <-- Diese Zeile hinzufügen/prüfen
-    // ENDE DER HINZUFÜGUNG
-    // BEGINN DER HINZUFÜGUNG FÜR GSON
-    implementation("com.google.code.gson:gson:2.10.1") // <-- Diese Zeile hinzufügen
-    // ENDE DER HINZUFÜGUNG
-    // BEGINN DER HINZUFÜGUNG FÜR TIMBER LOGGING
-    implementation("com.jakewharton.timber:timber:5.0.1") // <-- Diese Zeile hinzufügen
-    // ENDE DER HINZUFÜGUNG
-    // BEGINN DER HINZUFÜGUNG FÜR LIFECYCLE UND COMPOSE REACTIVE
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0") // Fuer lifecycleScope
-    implementation("androidx.compose.runtime:runtime-livedata:1.6.7") // Fuer collectAsState mit Flow
-    // ENDE DER HINZUFÜGUNG
-    // BEGINN DER HINZUFÜGUNG FÜR LIFECYCLE UND COMPOSE REACTIVE
-    implementation("androidx.compose.runtime:runtime-ktx:1.5.0") // <-- Diese Zeile auf 1.5.0 geändert
-    // ENDE DER HINZUFÜGUNG
+    // Firebase SDKs
+    implementation(platform("com.google.firebase:firebase-bom:32.8.1"))
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx")
+
+    // GSON
+    implementation("com.google.code.gson:gson:2.10.1")
+
+    // TIMBER Logging
+    implementation("com.jakewharton.timber:timber:5.0.1")
+
+    // LIFECYCLE UND COMPOSE REACTIVE
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0") // Für lifecycleScope (jetzt nur 1x)
+    implementation("androidx.compose.runtime:runtime-livedata:1.6.7") // Für observeAsState mit LiveData (falls benötigt)
+    implementation("androidx.compose.runtime:runtime-ktx") // Für collectAsState mit Flow (von BOM verwaltet)
 }
