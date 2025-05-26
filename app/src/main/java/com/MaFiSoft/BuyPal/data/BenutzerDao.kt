@@ -25,4 +25,7 @@ interface BenutzerDao {
 
     @Query("SELECT * FROM benutzer LIMIT 1")
     fun getAktuellerBenutzer(): Flow<BenutzerEntitaet?> // Fuer den Fall, dass nur ein Benutzer angemeldet ist
+
+    @Query("SELECT * FROM benutzer")
+    fun getAllBenutzer(): Flow<List<BenutzerEntitaet>> // <-- DIESE ZEILE DIENT FÜR DEN 1. TEST DER DATENBANK-FUNKTIONALITÄT
 }
