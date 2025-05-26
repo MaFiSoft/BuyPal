@@ -80,7 +80,7 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4") // Oder eine neuere stabile Version
 
     // Jetpack Compose - Core
-    implementation(platform("androidx.compose:compose-bom:2024.05.00"))
+    implementation(platform("androidx.compose:compose-bom:2023.08.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -99,7 +99,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2024.05.00"))
+    androidTestImplementation(platform("androidx.compose:compose-bom:2023.08.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
@@ -123,6 +123,6 @@ dependencies {
     implementation("androidx.compose.runtime:runtime-livedata:1.6.7") // Fuer collectAsState mit Flow
     // ENDE DER HINZUFÜGUNG
     // BEGINN DER HINZUFÜGUNG FÜR LIFECYCLE UND COMPOSE REACTIVE
-    implementation("androidx.compose.runtime:runtime-ktx") // <-- Diese Zeile hinzufuegen
+    implementation("androidx.compose.runtime:runtime-ktx:1.5.0") // <-- Diese Zeile auf 1.5.0 geändert
     // ENDE DER HINZUFÜGUNG
 }
