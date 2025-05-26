@@ -121,4 +121,9 @@ dependencies {
     implementation("com.jakewharton.timber:timber:5.0.1") // <-- Diese Zeile hinzufügen
     // ENDE DER HINZUFÜGUNG
 
+    // BEGINN DER HINZUFÜGUNG FÜR LIFECYCLE UND COMPOSE REACTIVE
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0") // Fuer lifecycleScope
+    implementation("androidx.compose.runtime:runtime-livedata:1.6.7") // Fuer collectAsState mit Flow
+    // ENDE DER HINZUFÜGUNG
+
 }
