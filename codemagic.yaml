@@ -74,22 +74,17 @@ workflows:
           echo "PATH=$PATH" >> $CM_ENV
           echo "--- Environment Setup Complete ---"
 
-      # NEUER SCHRITT: Aggressive Globale Gradle Cache Bereinigung
       - name: Aggressive Global Gradle Cache Clean (Before Wrapper/Build)
         script: |
           echo "Führe aggressive globale Gradle Cache Bereinigung durch..."
-          # Entfernt ALLE Gradle-Caches (Abhängigkeiten, Build-Caches, etc.)
           rm -rf "$HOME/.gradle/caches"
-          # Entfernt ALLE heruntergeladenen Gradle-Distributionen für den Wrapper
           rm -rf "$HOME/.gradle/wrapper/dists"
           echo "Globale Gradle-Caches und Distributionen entfernt."
 
       - name: Prepare and Generate Gradle Wrapper
         script: |
           echo "--- Preparing and Generating Gradle Wrapper ---"
-          # Die aggressiven Cache-Bereinigungen wurden im vorherigen Schritt durchgeführt.
-          # Lokale Wrapper-Dateien können sicherheitshalber auch gelöscht werden, falls nicht schon leer.
-          rm -f gradle/wrapper/gradle-wrapper.jar # Sicherstellen, dass die jar neu generiert wird
+          rm -f gradle/wrapper/gradle-wrapper.jar
 
           chmod +x gradlew
           echo "gradlew is now executable."
@@ -113,8 +108,8 @@ workflows:
       - name: Clean Project
         script: |
           echo "--- Cleaning Project ---"
-          # WICHTIG: --refresh-dependencies hier hinzugefügt, um Abhängigkeiten neu herunterzuladen
-          ./gradlew clean --stacktrace --info --no-daemon --refresh-dependencies
+          # DEBUG-Flag hinzugefügt
+          ./gradlew clean --stacktrace --debug --no-daemon --refresh-dependencies
           if [ $? -ne 0 ]; then echo "Clean task failed. See logs above." && exit 1; fi
           echo "Project cleaned successfully."
 
@@ -123,7 +118,8 @@ workflows:
           echo "--- Running KSP Debug ---"
           mkdir -p app/schemas
           chmod -R u+w app/schemas
-          ./gradlew :app:kspDebugKotlin --stacktrace --info --no-daemon
+          # DEBUG-Flag hinzugefügt
+          ./gradlew :app:kspDebugKotlin --stacktrace --debug --no-daemon
           if [ $? -ne 0 ]; then
             echo "KSP Debug task failed. See logs above."
             exit 1
@@ -144,7 +140,8 @@ workflows:
       - name: Build Android Debug APK
         script: |
           echo "--- Building Android Debug APK ---"
-          ./gradlew assembleDebug --stacktrace --info --no-daemon
+          # DEBUG-Flag hinzugefügt
+          ./gradlew assembleDebug --stacktrace --debug --no-daemon
           if [ $? -ne 0 ]; then echo "Assemble Debug task failed. See logs above." && exit 1; fi
           echo "Debug APK build complete."
 
