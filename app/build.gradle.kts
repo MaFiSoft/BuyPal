@@ -5,7 +5,7 @@ plugins {
     id("com.google.devtools.ksp")
     id("org.jetbrains.kotlin.plugin.compose")
     // BEGINN DER HINZUFÜGUNG FÜR GOOGLE SERVICES PLUGIN
-    id("com.google.gms.google-services")
+    // id("com.google.gms.google-services") // ZU DEBUG-ZWECKEN KURZZEITIG AUSSCHALTEN
     // ENDE DER HINZUFÜGUNG
 }
 
