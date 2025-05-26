@@ -112,18 +112,17 @@ dependencies {
     // Firebase Authentication (für die Benutzerverwaltung)
     implementation("com.google.firebase:firebase-auth-ktx") // <-- Diese Zeile hinzufügen/prüfen
     // ENDE DER HINZUFÜGUNG
-
     // BEGINN DER HINZUFÜGUNG FÜR GSON
     implementation("com.google.code.gson:gson:2.10.1") // <-- Diese Zeile hinzufügen
     // ENDE DER HINZUFÜGUNG
-
     // BEGINN DER HINZUFÜGUNG FÜR TIMBER LOGGING
     implementation("com.jakewharton.timber:timber:5.0.1") // <-- Diese Zeile hinzufügen
     // ENDE DER HINZUFÜGUNG
-
     // BEGINN DER HINZUFÜGUNG FÜR LIFECYCLE UND COMPOSE REACTIVE
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0") // Fuer lifecycleScope
     implementation("androidx.compose.runtime:runtime-livedata:1.6.7") // Fuer collectAsState mit Flow
     // ENDE DER HINZUFÜGUNG
-
+    // BEGINN DER HINZUFÜGUNG FÜR LIFECYCLE UND COMPOSE REACTIVE
+    implementation("androidx.compose.runtime:runtime-ktx:1.6.7") // <-- Diese Zeile hinzufuegen
+    // ENDE DER HINZUFÜGUNG
 }
