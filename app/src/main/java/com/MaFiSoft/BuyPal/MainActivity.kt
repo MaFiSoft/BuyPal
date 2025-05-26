@@ -35,7 +35,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState // <-- Diesen Import pruefen/hinzufuegen
 import timber.log.Timber // Logging
 import com.MaFiSoft.BuyPal.BuildConfig // <-- Diesen Import hinzufuegen
-import androidx.lifecycle.lifecycleScope // <-- Diesen Import pruefen/hinzufuegen
 
 class MainActivity : ComponentActivity() {
 
