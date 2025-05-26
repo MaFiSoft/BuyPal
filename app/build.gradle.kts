@@ -100,9 +100,9 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     // Firebase SDKs
-    implementation(platform("com.google.firebase:firebase-bom:32.8.1"))
-    implementation("com.google.firebase:firebase-firestore-ktx")
-    implementation("com.google.firebase:firebase-auth-ktx")
+    // implementation(platform("com.google.firebase:firebase-bom:32.8.1"))
+    // implementation("com.google.firebase:firebase-firestore-ktx")
+    // implementation("com.google.firebase:firebase-auth-ktx")
 
     // GSON
     implementation("com.google.code.gson:gson:2.10.1")
