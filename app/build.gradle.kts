@@ -5,7 +5,7 @@ plugins {
     id("com.google.devtools.ksp")
     id("org.jetbrains.kotlin.plugin.compose")
     // BEGINN DER HINZUFÜGUNG FÜR GOOGLE SERVICES PLUGIN
-    // id("com.google.gms.google-services") // ZU DEBUG-ZWECKEN KURZZEITIG AUSSCHALTEN
+    id("com.google.gms.google-services")
     // ENDE DER HINZUFÜGUNG
 }
 
@@ -100,9 +100,9 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     // Firebase SDKs
-    // implementation(platform("com.google.firebase:firebase-bom:32.8.1"))
-    // implementation("com.google.firebase:firebase-firestore-ktx")
-    // implementation("com.google.firebase:firebase-auth-ktx")
+    implementation(platform("com.google.firebase:firebase-bom:32.8.1"))
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx")
 
     // GSON
     implementation("com.google.code.gson:gson:2.10.1")
@@ -113,5 +113,5 @@ dependencies {
     // LIFECYCLE UND COMPOSE REACTIVE
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0") // Für lifecycleScope (jetzt nur 1x)
     implementation("androidx.compose.runtime:runtime-livedata:1.6.7") // Für observeAsState mit LiveData (falls benötigt)
-    implementation("androidx.compose.runtime:runtime-ktx") // Für collectAsState mit Flow (von BOM verwaltet)
+    implementation("androidx.compose.runtime:runtime-ktx:1.5.0") // Für collectAsState mit Flow (von BOM verwaltet)
 }
