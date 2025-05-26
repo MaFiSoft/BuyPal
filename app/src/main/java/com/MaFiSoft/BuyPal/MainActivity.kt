@@ -31,14 +31,17 @@ import com.MaFiSoft.BuyPal.data.AppDatabase
 import com.MaFiSoft.BuyPal.data.BenutzerEntitaet
 import com.MaFiSoft.BuyPal.ui.theme.BuyPalTheme
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.collectAsState // Import fuer collectAsState
+// import kotlinx.coroutines.flow.collectAsState // wurde durch die folgende Zeile ersetzt
+import androidx.compose.runtime.collectAsState // <-- Diesen Import pruefen/hinzufuegen
 import timber.log.Timber // Logging
+import com.MaFiSoft.BuyPal.BuildConfig // <-- Diesen Import hinzufuegen
+import androidx.lifecycle.lifecycleScope // <-- Diesen Import pruefen/hinzufuegen
 
 class MainActivity : ComponentActivity() {
 
     // Manuelle Initialisierung der Datenbank und des DAOs (TEMPORÄR OHNE HILT)
     private lateinit var db: AppDatabase
-    private lateinit var benutzerDao: BenutzerEntitaet.BenutzerDao // FALSCH: sollte BenutzerDao sein
+    // private lateinit var benutzerDao: BenutzerEntitaet.BenutzerDao // FALSCH: sollte BenutzerDao sein
 
     // Korrektur: Die BenutzerDao-Instanz
     // ACHTUNG: Hier korrigiert: benutzerDao muss vom Typ 'BenutzerDao' sein, nicht 'BenutzerEntitaet.BenutzerDao'
@@ -96,14 +99,14 @@ fun BenutzerTestUI(benutzerDao: com.MaFiSoft.BuyPal.data.BenutzerDao) { // Korre
             value = benutzerName,
             onValueChange = { benutzerName = it },
             label = { Text("Benutzername") },
-            modifier = Modifier.fillMaxSize(0.8f)
+            // modifier = Modifier.fillMaxSize(0.8f) // entfernt
         )
         Spacer(modifier = Modifier.height(8.dp))
         TextField(
             value = benutzerEmail,
             onValueChange = { benutzerEmail = it },
             label = { Text("Benutzer-E-Mail") },
-            modifier = Modifier.fillMaxSize(0.8f)
+            // modifier = Modifier.fillMaxSize(0.8f) // entfernt
         )
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = {
