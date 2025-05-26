@@ -1,0 +1,148 @@
+// com/MaFiSoft/BuyPal/repository/impl/ArtikelRepositoryImpl.kt
+package com.MaFiSoft.BuyPal.repository.impl
+
+import com.MaFiSoft.BuyPal.data.ArtikelDao
+import com.MaFiSoft.BuyPal.data.ArtikelEntitaet
+import com.MaFiSoft.BuyPal.repository.ArtikelRepository
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import timber.log.Timber
+
+/**
+ * Implementierung des Artikel-Repository.
+ * Verwaltet Artikeldaten lokal (Room) und in der Cloud (Firestore).
+ */
+class ArtikelRepositoryImpl(
+    private val artikelDao: ArtikelDao,
+    private val firestore: FirebaseFirestore
+) : ArtikelRepository {
+
+    private val ioScope = CoroutineScope(Dispatchers.IO)
+    private val firestoreCollection = firestore.collection("artikel")
+
+    // Synchronisiere Artikel von Firestore nach Room
+    init {
+        ioScope.launch {
+            firestoreCollection.addSnapshotListener { snapshots, e ->
+                if (e != null) {
+                    Timber.w(e, "Listen failed for Artikel.")
+                    return@addSnapshotListener
+                }
+
+                if (snapshots != null) {
+                    for (docChange in snapshots.documentChanges) {
+                        val artikel = docChange.document.toObject(ArtikelEntitaet::class.java)
+                        launch {
+                            when (docChange.type) {
+                                com.google.firebase.firestore.DocumentChange.Type.ADDED,
+                                com.google.firebase.firestore.DocumentChange.Type.MODIFIED -> {
+                                    artikelDao.artikelEinfuegen(artikel)
+                                    Timber.d("Artikel aus Firestore synchronisiert: ${artikel.artikelId}")
+                                }
+                                com.google.firebase.firestore.DocumentChange.Type.REMOVED -> {
+                                    artikelDao.artikelLoeschen(artikel.artikelId)
+                                    Timber.d("Artikel aus Firestore entfernt: ${artikel.artikelId}")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun getArtikelById(artikelId: String): Flow<ArtikelEntitaet?> {
+        return artikelDao.getArtikelById(artikelId)
+    }
+
+    override fun getArtikelFuerListe(listenId: String): Flow<List<ArtikelEntitaet>> {
+        return artikelDao.getArtikelFuerListe(listenId)
+    }
+
+    override fun getNichtAbgehakteArtikelFuerListe(listenId: String): Flow<List<ArtikelEntitaet>> {
+        return artikelDao.getNichtAbgehakteArtikelFuerListe(listenId)
+    }
+
+    override fun getNichtAbgehakteArtikelFuerListeUndGeschaeft(
+        listenId: String,
+        geschaeftId: String
+    ): Flow<List<ArtikelEntitaet>> {
+        return artikelDao.getNichtAbgehakteArtikelFuerListeUndGeschaeft(listenId, geschaeftId)
+    }
+
+    override suspend fun artikelSpeichern(artikel: ArtikelEntitaet) {
+        artikelDao.artikelEinfuegen(artikel)
+        ioScope.launch {
+            try {
+                firestoreCollection.document(artikel.artikelId).set(artikel).await()
+                Timber.d("Artikel in Firestore gespeichert: ${artikel.artikelId}")
+            } catch (e: Exception) {
+                Timber.e(e, "Fehler beim Speichern des Artikels in Firestore: ${e.message}")
+            }
+        }
+    }
+
+    override suspend fun artikelAktualisieren(artikel: ArtikelEntitaet) {
+        artikelDao.artikelAktualisieren(artikel)
+        ioScope.launch {
+            try {
+                firestoreCollection.document(artikel.artikelId).set(artikel).await()
+                Timber.d("Artikel in Firestore aktualisiert: ${artikel.artikelId}")
+            } catch (e: Exception) {
+                Timber.e(e, "Fehler beim Aktualisieren des Artikels in Firestore: ${e.message}")
+            }
+        }
+    }
+
+    override suspend fun artikelLoeschen(artikelId: String) {
+        artikelDao.artikelLoeschen(artikelId)
+        ioScope.launch {
+            try {
+                firestoreCollection.document(artikelId).delete().await()
+                Timber.d("Artikel aus Firestore geloescht: $artikelId")
+            } catch (e: Exception) {
+                Timber.e(e, "Fehler beim Loeschen des Artikels aus Firestore: ${e.message}")
+            }
+        }
+    }
+
+    override suspend fun alleArtikelFuerListeLoeschen(listenId: String) {
+        // Zuerst lokal loeschen
+        artikelDao.alleArtikelFuerListeLoeschen(listenId)
+        Timber.d("Alle Artikel lokal fuer Liste $listenId geloescht.")
+
+        // Dann aus Firestore loeschen (Achtung: Dies ist komplexer fuer grosse Mengen)
+        ioScope.launch {
+            try {
+                // Batch-Loeschung ist hier sinnvoll
+                val querySnapshot = firestoreCollection.whereEqualTo("listenId", listenId).get().await()
+                val batch = firestore.batch()
+                for (document in querySnapshot.documents) {
+                    batch.delete(document.reference)
+                }
+                batch.commit().await()
+                Timber.d("Alle Artikel in Firestore fuer Liste $listenId geloescht.")
+            } catch (e: Exception) {
+                Timber.e(e, "Fehler beim Loeschen aller Artikel aus Firestore fuer Liste $listenId: ${e.message}")
+            }
+        }
+    }
+
+    override suspend fun toggleArtikelAbgehaktStatus(artikelId: String, listenId: String) {
+        // Lese den Artikel zuerst aus Room
+        val artikel = artikelDao.getArtikelById(artikelId).firstOrNull()
+
+        if (artikel != null) {
+            val updatedArtikel = artikel.copy(abgehakt = !artikel.abgehakt)
+            artikelAktualisieren(updatedArtikel) // Nutze die vorhandene Aktualisierungslogik
+            Timber.d("Artikelstatus in Room und Firestore umgeschaltet: ${updatedArtikel.artikelId}, Abgehakt: ${updatedArtikel.abgehakt}")
+        } else {
+            Timber.w("Artikel mit ID $artikelId nicht gefunden zum Umschalten des Status.")
+        }
+    }
+}
