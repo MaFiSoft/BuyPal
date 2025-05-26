@@ -64,6 +64,14 @@ android {
     }
 }
 
+// <-- HIER DIESEN NEUEN REPOSITORIES-BLOCK HINZUFÜGEN -->
+repositories {
+    google()
+    mavenCentral()
+}
+// <--------------------------------------------------->
+
+
 ksp {
     // Dies ist der bereits vorhandene Pfad, den wir uns gemerkt haben
     arg("room.schemaLocation", "$projectDir/schemas")
