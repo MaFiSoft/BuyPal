@@ -1,11 +1,16 @@
-// app/build.gradle.kts - KORRIGIERTE VERSION FÜR Kotlin 2.0.0 & Compose 2024.10.00
+// app/build.gradle.kts
+// Stand: 2025-05-27_20:59
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
-    id("org.jetbrains.kotlin.plugin.compose") // Dieses Plugin bleibt
+    id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
+
+    // NEU HIER: Hilt Plugin und Kotlin-Kapt Plugin
+    id("com.google.dagger.hilt.android") // <-- Hinzugefügt
+    id("kotlin-kapt") // <-- Hinzugefügt für Hilt Annotation Processing
 }
 
 android {
@@ -40,7 +45,6 @@ android {
     }
     kotlinOptions {
         jvmTarget = "1.8"
-        // freeCompilerArgs können entfernt werden, da das Compose-Plugin dies übernimmt
     }
     buildFeatures {
         viewBinding = true
@@ -48,11 +52,6 @@ android {
         buildConfig = true
     }
     composeCompiler {
-        // WICHTIG: MIT org.jetbrains.kotlin.plugin.compose VERSION 2.0.0
-        // IST DIE EIGENSCHAFT 'kotlinCompilerExtensionVersion' NICHT MEHR ERFORDERLICH!
-        // Die Compose Compiler Extension Version wird automatisch durch das Kotlin-Plugin 2.0.0 verwaltet.
-        // Die folgende Zeile MUSS ENTFERNT WERDEN, da sie den Fehler verursacht:
-        // kotlinCompilerExtensionVersion = "1.6.10" // <-- DIESE ZEILE WURDE ENTFERNT!
         enableStrongSkippingMode = true
     }
     packaging {
@@ -75,8 +74,6 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
     // Jetpack Compose - Core (BOM managed Versions)
-    // HINWEIS: Compose BOM 2024.10.00 könnte eine zukünftige oder nicht existierende Version sein.
-    // Falls dies zu Problemen führt, verwenden Sie stattdessen die aktuellste stabile Version (z.B. 2024.06.00).
     implementation(platform("androidx.compose:compose-bom:2024.10.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -115,4 +112,8 @@ dependencies {
     // LIFECYCLE UND COMPOSE REACTIVE
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.compose.runtime:runtime-livedata:1.6.7")
+
+    // NEU HIER: Hilt-Abhängigkeiten
+    implementation("com.google.dagger:hilt-android:2.48") // <-- Hinzugefügt
+    kapt("com.google.dagger:hilt-android-compiler:2.48") // <-- Hinzugefügt
 }
