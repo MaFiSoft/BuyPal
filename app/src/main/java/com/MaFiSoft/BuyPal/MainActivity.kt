@@ -1,4 +1,3 @@
-// com/MaFiSoft/BuyPal/MainActivity.kt
 package com.MaFiSoft.BuyPal
 
 import android.os.Bundle
@@ -8,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+// import androidx.compose.foundation.layout.fillMaxWidth // ENTFERNT, da nicht im Originalcode
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,52 +18,52 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+// import androidx.compose.ui.Alignment // ENTFERNT, da nicht im Originalcode
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.lifecycleScope // Import fuer lifecycleScope
+// import androidx.lifecycle.lifecycleScope // Nicht mehr benötigt, aber harmlos
 import androidx.room.Room
 import com.MaFiSoft.BuyPal.data.AppDatabase
 import com.MaFiSoft.BuyPal.data.BenutzerEntitaet
 import com.MaFiSoft.BuyPal.ui.theme.BuyPalTheme
 import kotlinx.coroutines.launch
-// import kotlinx.coroutines.flow.collectAsState // wurde durch die folgende Zeile ersetzt
-import androidx.compose.runtime.collectAsState // <-- Diesen Import pruefen/hinzufuegen
-import timber.log.Timber // Logging
-import com.MaFiSoft.BuyPal.BuildConfig // <-- Diesen Import hinzufuegen
+import androidx.compose.runtime.collectAsState
+import timber.log.Timber
+// import com.MaFiSoft.BuyPal.BuildConfig
+
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+
 
 class MainActivity : ComponentActivity() {
 
-    // Manuelle Initialisierung der Datenbank und des DAOs (TEMPORÄR OHNE HILT)
     private lateinit var db: AppDatabase
-    // private lateinit var benutzerDao: BenutzerEntitaet.BenutzerDao // FALSCH: sollte BenutzerDao sein
-
-    // Korrektur: Die BenutzerDao-Instanz
-    // ACHTUNG: Hier korrigiert: benutzerDao muss vom Typ 'BenutzerDao' sein, nicht 'BenutzerEntitaet.BenutzerDao'
     private lateinit var korrekterBenutzerDao: com.MaFiSoft.BuyPal.data.BenutzerDao
+    private lateinit var firestore: FirebaseFirestore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialisiere Timber für besseres Logging
-        if (BuildConfig.DEBUG) {
-            Timber.plant(Timber.DebugTree())
-        }
+        //if (BuildConfig.DEBUG) {
+           Timber.plant(Timber.DebugTree())
+        //}
 
-        // Manuelle Room-Datenbank-Initialisierung
-        // Dies ist der temporäre Weg, ohne Dependency Injection (Hilt)
-        // Normalerweise wuerde Hilt das fuer uns bereitstellen.
         db = Room.databaseBuilder(
             applicationContext,
             AppDatabase::class.java,
-            "buypal_database" // Name Ihrer Datenbank
+            "buypal_database"
         ).build()
 
-        korrekterBenutzerDao = db.getBenutzerDao() // Instanz des Benutzer DAOs erhalten
+        korrekterBenutzerDao = db.getBenutzerDao()
+
+        firestore = FirebaseFirestore.getInstance()
 
         setContent {
             BuyPalTheme {
@@ -71,7 +71,8 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    BenutzerTestUI(korrekterBenutzerDao) // BenutzerDao an die Composable übergeben
+                    // Firebase-Instanz an den Composable übergeben
+                    BenutzerTestUI(korrekterBenutzerDao, firestore)
                 }
             }
         }
@@ -79,69 +80,88 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun BenutzerTestUI(benutzerDao: com.MaFiSoft.BuyPal.data.BenutzerDao) { // Korrekter Typ
+fun BenutzerTestUI(benutzerDao: com.MaFiSoft.BuyPal.data.BenutzerDao, firestore: FirebaseFirestore) {
+    // Diese Syntax (by remember) hat im Original funktioniert und wird beibehalten
     var benutzerName by remember { mutableStateOf("") }
     var benutzerEmail by remember { mutableStateOf("") }
 
-    // Alle Benutzer aus der Datenbank als Flow beobachten und als State sammeln
-    val alleBenutzer by benutzerDao.getAllBenutzer().collectAsState(initial = emptyList()) // Neue DAO-Methode erforderlich!
+    val alleBenutzer by benutzerDao.getAllBenutzer().collectAsState(initial = emptyList())
 
-    val coroutineScope = remember { lifecycleScope } // Zugriff auf den CoroutineScope der Activity
+    val coroutineScope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center // ZURÜCK ZUM ORIGINAL
     ) {
         TextField(
             value = benutzerName,
-            onValueChange = { benutzerName = it },
+            onValueChange = { newValue ->
+                Timber.d("DEBUG: TextField onValueChange - Neuer Name empfangen: '$newValue'") // Debug-Log beibehalten
+                benutzerName = newValue
+            },
             label = { Text("Benutzername") },
-            // modifier = Modifier.fillMaxSize(0.8f) // entfernt
+            // KEINE MODIFIER HIER, WIE IM ORIGINALCODE, DER FUNKTIONIERTE
         )
         Spacer(modifier = Modifier.height(8.dp))
         TextField(
             value = benutzerEmail,
-            onValueChange = { benutzerEmail = it },
+            onValueChange = { newValue ->
+                Timber.d("DEBUG: TextField onValueChange - Neue Email empfangen: '$newValue'") // Debug-Log für Email
+                benutzerEmail = newValue
+            },
             label = { Text("Benutzer-E-Mail") },
-            // modifier = Modifier.fillMaxSize(0.8f) // entfernt
+            // KEINE MODIFIER HIER, WIE IM ORIGINALCODE, DER FUNKTIONIERTE
         )
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = {
+            // HIER DIE ENTSCHEIDENDE ÄNDERUNG:
+            // Aktuelle Werte der State-Variablen vor dem Start der Coroutine festhalten
+            val nameZumSpeichern = benutzerName
+            val emailZumSpeichern = benutzerEmail
+
             coroutineScope.launch {
+                // HIER IST DER DEBUG-LOG, der jetzt die KORREKTEN Werte zeigen sollte!
+                Timber.d("DEBUG: Werte vor Erstellung von BenutzerEntitaet - Name: '$nameZumSpeichern', Email: '$emailZumSpeichern'")
+
                 val neuerBenutzer = BenutzerEntitaet(
-                    benutzerId = java.util.UUID.randomUUID().toString(), // Generiere eine zufällige ID
-                    name = benutzerName,
-                    email = benutzerEmail,
-                    erstellungszeitpunkt = java.util.Date() // Aktuelles Datum
+                    benutzerId = java.util.UUID.randomUUID().toString(),
+                    benutzername = nameZumSpeichern, // Jetzt die festgehaltenen Werte verwenden
+                    email = emailZumSpeichern,       // Jetzt die festgehaltenen Werte verwenden
+                    erstellungszeitpunkt = java.util.Date()
                 )
+                // Speichern in Room
                 benutzerDao.benutzerEinfuegen(neuerBenutzer)
-                Timber.d("Benutzer gespeichert: ${neuerBenutzer.name}")
-                benutzerName = "" // Felder leeren
-                benutzerEmail = ""
+                Timber.d("Benutzer in Room gespeichert: ${neuerBenutzer.benutzername}")
+
+                // Firestore-Speicherung beibehalten
+                firestore.collection("Benutzer")
+                    .document(neuerBenutzer.benutzerId)
+                    .set(neuerBenutzer)
+                    .addOnSuccessListener { Timber.d("Benutzer in Firestore gespeichert mit ID: ${neuerBenutzer.benutzerId}") }
+                    .addOnFailureListener { e -> Timber.e(e, "Fehler beim Speichern des Benutzers in Firestore") }
             }
+            // Felder leeren, nachdem die Coroutine gestartet und die Werte festgehalten wurden
+            benutzerName = ""
+            benutzerEmail = ""
         }) {
             Text("Benutzer speichern")
         }
         Spacer(modifier = Modifier.height(16.dp))
         Text("Gespeicherte Benutzer:")
-        LazyColumn {
-            items(alleBenutzer) { benutzer ->
-                Text("ID: ${benutzer.benutzerId.take(4)}..., Name: ${benutzer.name}, Email: ${benutzer.email}")
+        LazyColumn { // LazyColumn auch ohne fillMaxWidth
+            items(alleBenutzer) { benutzer: BenutzerEntitaet -> // Explizite Typisierung beibehalten
+                Text("ID: ${benutzer.benutzerId.take(4)}..., Name: ${benutzer.benutzername}, Email: ${benutzer.email}")
             }
         }
     }
 }
 
-// Eine einfache Preview-Funktion fuer die UI, die im Design-Editor angezeigt wird
 @Preview(showBackground = true)
 @Composable
 fun DefaultPreview() {
     BuyPalTheme {
-        // Im Preview können wir kein echtes DAO uebergeben,
-        // daher zeigen wir nur den UI-Struktur an.
-        // Bei realer Ausfuehrung wird das DAO aus der Activity kommen.
         Text("Benutzer Test UI (Preview)")
     }
 }
