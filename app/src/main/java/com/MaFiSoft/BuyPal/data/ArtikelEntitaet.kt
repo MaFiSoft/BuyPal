@@ -1,4 +1,6 @@
-// com/MaFiSoft/BuyPal/data/ArtikelEntitaet.kt
+// app/src/main/java/com/MaFiSoft/BuyPal/data/ArtikelEntitaet.kt
+// Stand: 2025-05-28_22:50 (Angepasst an BenutzerEntitaet Muster)
+
 package com.MaFiSoft.BuyPal.data
 
 import androidx.room.Entity
@@ -8,31 +10,24 @@ import com.google.firebase.firestore.ServerTimestamp
 import java.util.Date
 
 /**
- * Entitaet fuer einen Artikel innerhalb einer Einkaufsliste.
+ * Entitaet fuer einen Artikel in einer Einkaufsliste.
  * Dient als Datenmodell fuer Room (lokale DB) und Firestore (Cloud DB).
- *
- * @param artikelId Eindeutige ID des Artikels.
- * @param listenId ID der Einkaufsliste, zu der dieser Artikel gehoert.
- * @param produktId ID des verknuepften Produktes (optional, wenn es ein Freitext-Artikel ist).
- * @param name Name des Artikels (z.B. "Milch", "Banane", "Salami").
- * @param menge Menge des Artikels (z.B. "1 Liter", "500g", optional).
- * @param abgehakt Status, ob der Artikel abgehakt/gekauft ist.
- * @param hinzugefuegtVonBenutzerId ID des Benutzers, der den Artikel hinzugefuegt hat.
- * @param erstellungszeitpunkt Zeitstempel der Erstellung.
- * @param geschaeftIds Liste der Geschaefts-IDs, bei denen dieser Artikel erhaeltlich ist.
  */
-@Entity(tableName = "artikel")
+@Entity(tableName = "artikel") // Name der Tabelle in Room
 data class ArtikelEntitaet(
-    @PrimaryKey
-    @DocumentId
-    val artikelId: String = "",
-    val listenId: String = "",
-    val produktId: String? = null, // Optional, wenn es ein Freitext-Artikel ist
+    @PrimaryKey // Primärschlüssel für Room
+    @DocumentId // Kennzeichnet Feld als Firestore-Dokument-ID
+    val artikelId: String = "", // Eindeutige ID des Artikels
     val name: String = "",
-    val menge: String? = null, // Optional, wie besprochen
-    val abgehakt: Boolean = false,
-    val hinzugefuegtVonBenutzerId: String = "",
-    @ServerTimestamp
+    val beschreibung: String? = null,
+    val menge: Double = 1.0, // Standardmenge
+    val einheit: String? = null, // z.B. "Stk.", "kg", "Liter"
+    val preis: Double? = null,
+    val listenId: String = "", // ID der Liste, zu der der Artikel gehört
+    val kategorieId: String? = null, // Optional: ID der Kategorie
+    val geschaeftId: String? = null, // Optional: ID des Geschäfts, wo der Artikel gekauft werden soll
+    var abgehakt: Boolean = false, // Status, ob Artikel bereits gekauft/abgehakt ist
+    @ServerTimestamp // Firestore fuellt dieses Feld automatisch beim Speichern
     val erstellungszeitpunkt: Date? = null,
-    val geschaeftIds: List<String> = emptyList() // Liste von Strings fuer Room und Firestore
+    val zuletztGeaendert: Date? = null // Feld fuer die letzte Aenderung (kann manuell gesetzt oder bei Aktualisierung aktualisiert werden)
 )

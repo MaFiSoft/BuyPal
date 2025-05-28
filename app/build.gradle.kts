@@ -80,6 +80,12 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.9.0") // Warning: A newer version ... 1.10.1
 
+    // Lifecycle ViewModel (falls noch nicht vorhanden, für ViewModels in Composables)
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0") // Prüfen Sie die aktuelle Version!
+    // Optional: Compose Material Icons (falls noch nicht da)
+    implementation("androidx.compose.material:material-icons-extended")
+
+
     // Room (für Datenbank-Persistenz)
     implementation("androidx.room:room-runtime:2.6.1") // Warning: A newer version ... 2.7.1
     ksp("androidx.room:room-compiler:2.6.1") // Warning: A newer version ... 2.7.1

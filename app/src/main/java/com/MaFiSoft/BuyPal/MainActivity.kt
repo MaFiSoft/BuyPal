@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/MainActivity.kt
-// Stand: 2025-05-27_23:40 (bereinigt und kommentiert)
+// Stand: 2025-05-28_21:45 (mit Jetpack Compose Navigation und Artikelverwaltung)
 
 package com.MaFiSoft.BuyPal
 
@@ -28,10 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-// Nicht mehr direkt in MainActivity benötigt, da ViewModel die Datenzugriffsschicht managt
-// import com.MaFiSoft.BuyPal.data.AppDatabase
-// import com.MaFiSoft.BuyPal.data.BenutzerDao
-// import com.google.firebase.firestore.FirebaseFirestore
 import com.MaFiSoft.BuyPal.data.BenutzerEntitaet // Datenmodell weiterhin benötigt
 import com.MaFiSoft.BuyPal.ui.theme.BuyPalTheme
 import kotlinx.coroutines.launch
@@ -39,30 +35,32 @@ import androidx.compose.runtime.collectAsState // Zum Sammeln von Flow-Daten
 import timber.log.Timber
 
 import dagger.hilt.android.AndroidEntryPoint
-// Nicht mehr direkt in MainActivity für @Inject benötigt
-// import javax.inject.Inject
-
-// Hilt ViewModel spezifische Imports
 import androidx.hilt.navigation.compose.hiltViewModel // Für das Abrufen des ViewModels in Composables
 import com.MaFiSoft.BuyPal.presentation.viewmodel.BenutzerViewModel // Ihr benutzerdefiniertes ViewModel
+
+// NEUE IMPORTS für Navigation
+import androidx.navigation.compose.rememberNavController // Zum Erstellen und Verwalten des NavControllers
+import androidx.navigation.compose.NavHost // Der Navigations-Host, der die Composables auf Routen abbildet
+import androidx.navigation.compose.composable // Funktion zum Definieren von Routen
+import com.MaFiSoft.BuyPal.navigation.Screen // Ihre definierten Navigationsrouten
+import com.MaFiSoft.BuyPal.ui.screens.HomeScreen // Der Composable für den Home-Bildschirm
+
+// NEUE IMPORTS für Artikelverwaltung
+import com.MaFiSoft.BuyPal.ui.screens.SplashScreen // Der Composable für den Splash-Bildschirm
+import com.MaFiSoft.BuyPal.ui.screens.ArtikelTestUI // NEU: Der Composable für den Artikel-Bildschirm
+import com.MaFiSoft.BuyPal.presentation.viewmodel.ArtikelViewModel // NEU: Ihr ViewModel für Artikel
+
 
 // Annotation für Hilt, um Abhängigkeiten in diese Activity zu injizieren
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    // Alte manuelle Instanziierungen und direkte Injektionen wurden entfernt,
-    // da das ViewModel nun die Verantwortung für Datenzugriffsschichten übernimmt.
-    // private lateinit var db: AppDatabase
-    // private lateinit var korrekterBenutzerDao: com.MaFiSoft.BuyPal.data.BenutzerDao
-    // private lateinit var firestore: FirebaseFirestore
-    // @Inject lateinit var benutzerDao: com.MaFiSoft.BuyPal.data.BenutzerDao
-    // @Inject lateinit var firestore: FirebaseFirestore
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Initialisiert Timber für Logging.
-        // Dies sollte idealerweise in der Application-Klasse einmalig erfolgen.
+        // Dies sollte idealerweise in der Application-Klasse einmalig erfolgen,
+        // um sicherzustellen, dass es nur einmal initialisiert wird.
         Timber.plant(Timber.DebugTree())
 
         // Setzt den Inhalt der Activity als Compose-UI
@@ -73,19 +71,46 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // Das ViewModel über Hilt abrufen.
-                    // Hilt kümmert sich um die Erstellung und Injektion der Abhängigkeiten des ViewModels.
-                    val benutzerViewModel: BenutzerViewModel = hiltViewModel()
+                    // Erstellt und erinnert sich an den NavController.
+                    // Dies ist die zentrale Instanz, die den Navigations-Zustand verwaltet.
+                    val navController = rememberNavController()
 
-                    // Die BenutzerTestUI Composable-Funktion aufrufen und das ViewModel übergeben.
-                    BenutzerTestUI(benutzerViewModel)
+                    // Der NavHost ist der Container, der die verschiedenen navigierbaren Composables (Screens) hostet.
+                    // 'startDestination' legt fest, welcher Screen beim Start der App zuerst angezeigt wird.
+                    NavHost(
+                        navController = navController,
+                        startDestination = Screen.Splash.route // App startet mit dem Splash Screen
+                    ) {
+                        // Definiert den Composable für die 'splash_screen' Route
+                        composable(Screen.Splash.route) {
+                            SplashScreen(navController = navController)
+                        }
+                        // Definiert den Composable für die 'home_screen' Route
+                        composable(Screen.Home.route) {
+                            HomeScreen(navController = navController) // HomeScreen erhält den NavController
+                        }
+                        // Definiert den Composable für die 'benutzer_verwaltung_screen' Route
+                        // Das ViewModel wird hier über Hilt injiziert, wenn dieser Screen erreicht wird.
+                        composable(Screen.BenutzerVerwaltung.route) {
+                            val benutzerViewModel: BenutzerViewModel = hiltViewModel()
+                            BenutzerTestUI(benutzerViewModel = benutzerViewModel)
+                        }
+                        // NEU: Definiert den Composable für die 'artikel_verwaltung_screen' Route
+                        // Das ArtikelViewModel wird hier über Hilt injiziert.
+                        composable(Screen.ArtikelVerwaltung.route) {
+                            val artikelViewModel: ArtikelViewModel = hiltViewModel() // Hilt injiziert das ArtikelViewModel
+                            ArtikelTestUI(viewModel = artikelViewModel) // Zeigt den ArtikelTestUI Screen
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-// Composable-Funktion für die Benutzeroberfläche zur Benutzerverwaltung
+// Composable-Funktion für die Benutzeroberfläche zur Benutzerverwaltung.
+// Diese Funktion ist nun ein 'Screen' innerhalb der Navigationsstruktur
+// und wird vom NavHost aufgerufen.
 @Composable
 fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
     // Zustandsvariablen für Benutzereingaben
@@ -165,6 +190,8 @@ fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
 }
 
 // Preview-Funktion für Android Studio
+// HINWEIS: Die Preview zeigt nur den Inhalt des 'Text'-Composable,
+// da die vollständige Navigationsstruktur im Preview-Kontext nicht emuliert wird.
 @Preview(showBackground = true)
 @Composable
 fun DefaultPreview() {

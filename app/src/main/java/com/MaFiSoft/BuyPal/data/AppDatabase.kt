@@ -1,43 +1,32 @@
-// com/MaFiSoft/BuyPal/data/AppDatabase.kt
+// app/src/main/java/com/MaFiSoft/BuyPal/data/AppDatabase.kt
+// Stand: 2025-05-28_22:45 (mit korrigiertem Converters-Import)
+
 package com.MaFiSoft.BuyPal.data
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import com.MaFiSoft.BuyPal.data.BenutzerEntitaet
+import com.MaFiSoft.BuyPal.data.ArtikelEntitaet
+import com.MaFiSoft.BuyPal.data.Converters // KORRIGIERT: Korrekter Import für Converters
 
-/**
- * Die Haupt-Datenbankklasse fuer Room.
- * Definiert alle Entitaeten, die Teil der Datenbank sind.
- *
- * @param entities Die Liste aller Entitaets-Klassen, die in dieser Datenbank verwendet werden.
- * @param version Die Versionsnummer der Datenbank. Muss bei Schemaaenderungen erhoeht werden.
- * @param exportSchema Gibt an, ob das Datenbankschema exportiert werden soll (fuer Migrationen).
- * @param typeConverters Die Liste der TypeConverter, die fuer die Datenbank benoetigt werden.
- */
+
+// Erhöhen Sie die Version bei jeder Schemaänderung.
+// Füge hier weitere Entitäten hinzu, sobald sie definiert sind.
 @Database(
     entities = [
         BenutzerEntitaet::class,
-        GruppeEntitaet::class,
-        EinkaufslisteEntitaet::class,
-        ProduktEntitaet::class,
-        KategorieEntitaet::class,
-        GeschaeftEntitaet::class,
-        ArtikelEntitaet::class,
-        ProduktGeschaeftVerbindung::class
+        ArtikelEntitaet::class
+        // Weitere Entitäten hier hinzufügen
     ],
-    version = 1, // Erste Version der Datenbank
-    exportSchema = true
+    version = 2, // WICHTIG: Die Datenbankversion wurde auf 2 erhöht, da ArtikelEntitaet hinzugefügt wurde
+    exportSchema = true // WICHTIG: Sollte 'true' sein, damit Room die Schemadateien generiert
 )
-@TypeConverters(Converters::class) // Hier verknuepfen wir unseren TypeConverter
+@TypeConverters(Converters::class) // WICHTIG: Verwendet die korrekte Converters-Klasse
 abstract class AppDatabase : RoomDatabase() {
-    // Hier werden die Data Access Objects (DAOs) deklariert
-    // Diese werden wir im naechsten Schritt erstellen
+    // DAO für Benutzer-Entitäten
     abstract fun getBenutzerDao(): BenutzerDao
-    abstract fun getGruppeDao(): GruppeDao
-    abstract fun getEinkaufslisteDao(): EinkaufslisteDao
-    abstract fun getProduktDao(): ProduktDao
-    abstract fun getKategorieDao(): KategorieDao
-    abstract fun getGeschaeftDao(): GeschaeftDao
+
+    // DAO für Artikel-Entitäten
     abstract fun getArtikelDao(): ArtikelDao
-    abstract fun getProduktGeschaeftVerbindungDao(): ProduktGeschaeftVerbindungDao // Verbindungstabelle
 }
