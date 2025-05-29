@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/ArtikelTestUI.kt
-// Stand: 2025-05-28_23:15 (Korrekturen für CoroutineScope und Parametername)
+// Stand: 2025-05-29_17:08 (Korrekturen für LazyColumn Imports von Gemini)
 
 package com.MaFiSoft.BuyPal.ui.screens
 
@@ -16,6 +16,10 @@ import kotlinx.coroutines.launch // WICHTIG: Import für launch
 import java.util.UUID
 import java.util.Date // WICHTIG: Import für Date
 
+// NEUE IMPORTE FÜR LAZYCOLUMN UND ITEMS
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items // Für die items-Funktion in LazyColumn
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArtikelTestUI(
@@ -29,7 +33,7 @@ fun ArtikelTestUI(
             TopAppBar(title = { Text("Artikel Test UI") })
         },
         content = { paddingValues ->
-            Column(
+            Column( // HINWEIS: Dies ist die äußere Column, die paddingValues verwendet
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
@@ -45,14 +49,14 @@ fun ArtikelTestUI(
                             beschreibung = "Eine Beschreibung",
                             menge = 2.0,
                             einheit = "Stk.",
-                            listenId = "testListe123",
+                            listenId = "testListe123", // Beispiel: Eine feste ID für Testzwecke
                             kategorieId = "Kat1",
                             geschaeftId = "GeschaeftA",
                             abgehakt = false,
-                            erstellungszeitpunkt = Date(), // Standardmäßig der aktuelle Zeitpunkt
-                            zuletztGeaendert = Date() // KORRIGIERT: Parametername zu 'zuletztGeaendert'
+                            erstellungszeitpunkt = Date(),
+                            zuletztGeaendert = Date()
                         )
-                        viewModel.artikelEinfuegen(neuerArtikel)
+                        viewModel.artikelSpeichern(neuerArtikel)
                     }
                 }) {
                     Text("Artikel hinzufügen")
@@ -65,18 +69,21 @@ fun ArtikelTestUI(
                 if (alleArtikel.isEmpty()) {
                     Text("Keine Artikel vorhanden.")
                 } else {
-                    alleArtikel.forEach { artikel ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("${artikel.name} (${artikel.menge} ${artikel.einheit ?: ""}) - Abgehakt: ${artikel.abgehakt}")
-                            Button(onClick = {
-                                coroutineScope.launch { // Verwenden Sie coroutineScope.launch
-                                    viewModel.toggleArtikelAbgehaktStatus(artikel.artikelId)
+                    // LazyColumn für effiziente Listenanzeige
+                    LazyColumn {
+                        items(alleArtikel) { artikel ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("${artikel.name} (${artikel.menge} ${artikel.einheit ?: ""}) - Abgehakt: ${artikel.abgehakt}")
+                                Button(onClick = {
+                                    coroutineScope.launch {
+                                        viewModel.toggleArtikelAbgehaktStatus(artikel.artikelId ?: "", artikel.listenId)
+                                    }
+                                }) {
+                                    Text(if (artikel.abgehakt) "Abhaken" else "Haken")
                                 }
-                            }) {
-                                Text(if (artikel.abgehakt) "Abhaken" else "Haken")
                             }
                         }
                     }

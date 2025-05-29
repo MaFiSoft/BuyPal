@@ -1,11 +1,11 @@
-// app/src/main/java/com/MaFiSoft/BuyPal/data/repository/impl/ArtikelRepositoryImpl.kt
-// Stand: 2025-05-28_22:50 (Angepasst an BenutzerRepositoryImpl Muster)
+// com/MaFiSoft/BuyPal/repository/impl/ArtikelRepositoryImpl.kt
+// Angepasst an BenutzerRepositoryImpl Muster für Room-first und delayed sync
 
 package com.MaFiSoft.BuyPal.repository.impl
 
 import com.MaFiSoft.BuyPal.data.ArtikelDao
 import com.MaFiSoft.BuyPal.data.ArtikelEntitaet
-import com.MaFiSoft.BuyPal.repository.ArtikelRepository // Import des ArtikelRepository INTERFACE
+import com.MaFiSoft.BuyPal.repository.ArtikelRepository
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,50 +14,53 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
+import java.util.Date
 import javax.inject.Inject
 import javax.inject.Singleton
-import java.util.Date
 
 /**
  * Implementierung des Artikel-Repository.
- * Verwaltet Artikeldaten lokal (Room) und in der Cloud (Firestore).
+ * Verwaltet Artikeldaten lokal (Room) und synchronisiert diese verzögert mit Firestore.
  */
 @Singleton
 class ArtikelRepositoryImpl @Inject constructor(
     private val artikelDao: ArtikelDao,
     private val firestore: FirebaseFirestore
-) : ArtikelRepository { // Implementiert das ArtikelRepository Interface
+) : ArtikelRepository {
 
-    private val ioScope = CoroutineScope(Dispatchers.IO) // Wie in BenutzerRepositoryImpl
+    private val ioScope = CoroutineScope(Dispatchers.IO)
     private val firestoreCollection = firestore.collection("artikel")
 
-    // Synchronisation von Firestore nach Room (Listener)
+    // Init-Block: Stellt sicher, dass initial Artikel aus Firestore in Room sind (Pull-Sync).
+    // KEIN permanenter Snapshot-Listener mehr hier, da der SyncManager dies steuert.
     init {
-        ioScope.launch { // Verwenden Sie den ioScope
-            firestoreCollection.addSnapshotListener { snapshots, e ->
-                if (e != null) {
-                    Timber.w(e, "Listen failed for Artikel.")
-                    return@addSnapshotListener
-                }
+        ioScope.launch {
+            try {
+                // Initialer Pull von Firestore, um Room zu befüllen (z.B. beim App-Start)
+                val snapshot = firestoreCollection.get().await()
+                val firebaseArtikel = snapshot.documents.mapNotNull { it.toObject(ArtikelEntitaet::class.java) }
 
-                if (snapshots != null) {
-                    for (docChange in snapshots.documentChanges) {
-                        val artikel = docChange.document.toObject(ArtikelEntitaet::class.java)
-                        ioScope.launch { // Verwenden Sie den ioScope für jede Datenbankoperation
-                            when (docChange.type) {
-                                com.google.firebase.firestore.DocumentChange.Type.ADDED,
-                                com.google.firebase.firestore.DocumentChange.Type.MODIFIED -> {
-                                    artikelDao.insertArtikel(artikel) // Angepasst an ArtikelDao.kt
-                                    Timber.d("Artikel aus Firestore synchronisiert: ${artikel.artikelId}")
-                                }
-                                com.google.firebase.firestore.DocumentChange.Type.REMOVED -> {
-                                    artikelDao.deleteArtikel(artikel.artikelId) // Angepasst an ArtikelDao.kt
-                                    Timber.d("Artikel aus Firestore entfernt: ${artikel.artikelId}")
-                                }
-                            }
-                        }
+                firebaseArtikel.forEach { artikelFromFirestore ->
+                    val existingArtikelInRoom = artikelDao.getArtikelByFirestoreId(artikelFromFirestore.artikelId ?: "").firstOrNull()
+
+                    if (existingArtikelInRoom == null ||
+                        (artikelFromFirestore.zuletztGeaendert != null && existingArtikelInRoom.zuletztGeaendert != null &&
+                                artikelFromFirestore.zuletztGeaendert.after(existingArtikelInRoom.zuletztGeaendert))) {
+                        // Wenn nicht vorhanden oder Firestore aktueller ist, aus Firestore in Room speichern
+                        val artikelToSave = artikelFromFirestore.copy(
+                            artikelRoomId = existingArtikelInRoom?.artikelRoomId ?: 0, // Behalte Room-ID, falls vorhanden
+                            istLokalGeaendert = false, // Ist jetzt synchronisiert
+                            istLoeschungVorgemerkt = false // Ist jetzt synchronisiert
+                        )
+                        artikelDao.artikelEinfuegen(artikelToSave)
+                        Timber.d("Artikel aus Firestore in Room initial synchronisiert/aktualisiert: ${artikelToSave.artikelId}")
+                    } else {
+                        Timber.d("Lokaler Artikel ${artikelFromFirestore.artikelId} ist aktueller oder gleichwertig, keine initiale Synchronisation von Firestore nötig.")
                     }
                 }
+                Timber.d("Initiale Synchronisation von ${firebaseArtikel.size} Artikeln aus Firestore nach Room abgeschlossen.")
+            } catch (e: Exception) {
+                Timber.e(e, "Fehler bei der initialen Synchronisation von Artikeln aus Firestore: ${e.message}")
             }
         }
     }
@@ -67,7 +70,7 @@ class ArtikelRepositoryImpl @Inject constructor(
     }
 
     override fun getArtikelById(artikelId: String): Flow<ArtikelEntitaet?> {
-        return artikelDao.getArtikelById(artikelId)
+        return artikelDao.getArtikelByFirestoreId(artikelId) // Holt Artikel per Firestore-ID
     }
 
     override fun getArtikelFuerListe(listenId: String): Flow<List<ArtikelEntitaet>> {
@@ -86,86 +89,115 @@ class ArtikelRepositoryImpl @Inject constructor(
     }
 
     override suspend fun artikelSpeichern(artikel: ArtikelEntitaet) {
-        artikelDao.insertArtikel(artikel) // Angepasst an ArtikelDao.kt
-        ioScope.launch {
-            try {
-                firestoreCollection.document(artikel.artikelId).set(artikel).await()
-                Timber.d("Artikel in Firestore gespeichert: ${artikel.artikelId}")
-            } catch (e: Exception) {
-                Timber.e(e, "Fehler beim Speichern des Artikels in Firestore: ${e.message}")
-            }
-        }
+        // Vor dem Speichern in Room 'zuletztGeaendert' setzen und 'istLokalGeaendert' auf true setzen.
+        val artikelToSave = artikel.copy(
+            zuletztGeaendert = Date(),
+            istLokalGeaendert = true,
+            istLoeschungVorgemerkt = false // Sicherstellen, dass dieses Flag bei Speicherung/Aktualisierung false ist
+        )
+        artikelDao.artikelEinfuegen(artikelToSave) // OnConflictStrategy.REPLACE sorgt für Einfügen oder Aktualisieren
+        Timber.d("Artikel lokal in Room gespeichert/aktualisiert und fuer Sync markiert: ${artikelToSave.name} (RoomID: ${artikelToSave.artikelRoomId})")
     }
 
     override suspend fun artikelAktualisieren(artikel: ArtikelEntitaet) {
-        artikelDao.updateArtikel(artikel) // Angepasst an ArtikelDao.kt
-        ioScope.launch {
-            try {
-                firestoreCollection.document(artikel.artikelId).set(artikel).await()
-                Timber.d("Artikel in Firestore aktualisiert: ${artikel.artikelId}")
-            } catch (e: Exception) {
-                Timber.e(e, "Fehler beim Aktualisieren des Artikels in Firestore: ${e.message}")
-            }
-        }
+        // Identisch zur speichern-Logik, da 'artikelEinfuegen' mit REPLACE beides abdeckt.
+        // Der Aufruf bleibt aus semantischen Gründen bestehen.
+        artikelSpeichern(artikel)
+        Timber.d("Artikel lokal in Room aktualisiert und fuer Sync markiert: ${artikel.name} (RoomID: ${artikel.artikelRoomId})")
     }
 
-    override suspend fun artikelLoeschen(artikelId: String) {
-        artikelDao.deleteArtikel(artikelId) // Angepasst an ArtikelDao.kt
-        ioScope.launch {
-            try {
-                firestoreCollection.document(artikelId).delete().await()
-                Timber.d("Artikel aus Firestore geloescht: $artikelId")
-            } catch (e: Exception) {
-                Timber.e(e, "Fehler beim Loeschen des Artikels aus Firestore: ${e.message}")
-            }
-        }
+    override suspend fun artikelLoeschen(artikel: ArtikelEntitaet) {
+        // Markiere den Artikel für die Löschung in Firestore und als lokal geändert.
+        val artikelToMarkForDeletion = artikel.copy(
+            istLokalGeaendert = true,
+            istLoeschungVorgemerkt = true,
+            zuletztGeaendert = Date()
+        )
+        artikelDao.artikelAktualisieren(artikelToMarkForDeletion) // Aktualisiere den Datensatz in Room
+        Timber.d("Artikel lokal markiert fuer Loeschung und Sync: ${artikel.name} (RoomID: ${artikel.artikelRoomId})")
+        // Die tatsächliche Löschung aus Room erfolgt erst nach erfolgreichem Sync mit Firestore.
     }
 
     override suspend fun alleArtikelFuerListeLoeschen(listenId: String) {
-        artikelDao.alleArtikelFuerListeLoeschen(listenId)
-        Timber.d("Alle Artikel lokal fuer Liste $listenId geloescht.")
-
-        ioScope.launch {
-            try {
-                val querySnapshot = firestoreCollection.whereEqualTo("listenId", listenId).get().await()
-                val batch = firestore.batch()
-                for (document in querySnapshot.documents) {
-                    batch.delete(document.reference)
-                }
-                batch.commit().await()
-                Timber.d("Alle Artikel in Firestore fuer Liste $listenId geloescht.")
-            } catch (e: Exception) {
-                Timber.e(e, "Fehler beim Loeschen aller Artikel aus Firestore fuer Liste $listenId: ${e.message}")
-            }
+        // Markiere alle Artikel der Liste für die Löschung in Firestore und als lokal geändert.
+        val artikelDerListe = artikelDao.getArtikelFuerListe(listenId).firstOrNull() ?: emptyList()
+        artikelDerListe.forEach { artikel ->
+            val artikelToMarkForDeletion = artikel.copy(
+                istLokalGeaendert = true,
+                istLoeschungVorgemerkt = true,
+                zuletztGeaendert = Date()
+            )
+            artikelDao.artikelAktualisieren(artikelToMarkForDeletion)
         }
+        Timber.d("Alle Artikel lokal fuer Liste $listenId markiert zur Loeschung und Sync.")
+        // Die tatsächliche Löschung aus Room erfolgt erst nach erfolgreichem Sync mit Firestore (via syncArtikelMitFirestore).
     }
 
     override suspend fun toggleArtikelAbgehaktStatus(artikelId: String, listenId: String) {
-        // HINWEIS: Hier ist ein Import für `firstOrNull` erforderlich, wenn nicht bereits vorhanden.
-        // `import kotlinx.coroutines.flow.firstOrNull`
-        val artikel = artikelDao.getArtikelById(artikelId).firstOrNull()
+        val artikel = artikelDao.getArtikelByFirestoreId(artikelId).firstOrNull()
 
         if (artikel != null) {
-            val updatedArtikel = artikel.copy(abgehakt = !artikel.abgehakt, zuletztGeaendert = Date()) // `Date()` für aktuellen Zeitstempel
-            artikelAktualisieren(updatedArtikel)
-            Timber.d("Artikelstatus in Room und Firestore umgeschaltet: ${updatedArtikel.artikelId}, Abgehakt: ${updatedArtikel.abgehakt}")
+            val updatedArtikel = artikel.copy(
+                abgehakt = !artikel.abgehakt,
+                zuletztGeaendert = Date(),
+                istLokalGeaendert = true // Statusänderung ist auch eine lokale Änderung
+            )
+            artikelDao.artikelAktualisieren(updatedArtikel)
+            Timber.d("Artikelstatus in Room umgeschaltet und fuer Sync markiert: ${updatedArtikel.artikelId}, Abgehakt: ${updatedArtikel.abgehakt}")
         } else {
             Timber.w("Artikel mit ID $artikelId nicht gefunden zum Umschalten des Status.")
         }
     }
 
-    // Die syncArtikelFromFirestore-Methode (aus meiner früheren Version)
-    override suspend fun syncArtikelFromFirestore() {
-        try {
-            val snapshot = firestoreCollection.get().await()
-            val firebaseArtikel = snapshot.documents.mapNotNull { it.toObject(ArtikelEntitaet::class.java) }
+    override suspend fun syncArtikelMitFirestore() {
+        ioScope.launch {
+            Timber.d("Starte Artikel-Synchronisation mit Firestore.")
+            try {
+                val unsyncedArtikel = artikelDao.getUnsynchronisierteArtikel()
+                val artikelFuerLoeschung = artikelDao.getArtikelFuerLoeschung()
 
-            firebaseArtikel.forEach { artikel ->
-                artikelDao.insertArtikel(artikel) // Sicherstellen, dass dies korrekt ist
+                // 1. Lokale Löschungen in Firestore ausführen und dann lokal löschen
+                for (artikel in artikelFuerLoeschung) {
+                    if (artikel.artikelId != null) { // Lösche nur, wenn eine Firestore-ID vorhanden ist
+                        firestoreCollection.document(artikel.artikelId).delete().await()
+                        artikelDao.deleteArtikelByRoomId(artikel.artikelRoomId) // Lokal löschen nach erfolgreicher Firestore-Löschung
+                        Timber.d("Artikel aus Firestore geloescht und lokal entfernt: ${artikel.artikelId}")
+                    } else {
+                        // Wenn keine Firestore-ID vorhanden, nur lokal löschen (war nie in Firestore)
+                        artikelDao.deleteArtikelByRoomId(artikel.artikelRoomId)
+                        Timber.d("Artikel ohne Firestore-ID nur lokal geloescht: (RoomID: ${artikel.artikelRoomId})")
+                    }
+                }
+
+                // 2. Unsynchronisierte Änderungen in Firestore speichern/aktualisieren
+                for (artikel in unsyncedArtikel) {
+                    if (!artikel.istLoeschungVorgemerkt) { // Nur speichern/aktualisieren, wenn nicht für Löschung vorgemerkt
+                        if (artikel.artikelId == null || artikel.artikelId.isEmpty()) {
+                            // NEUER ARTIKEL: Firestore generiert ID
+                            val newDocRef = firestoreCollection.add(artikel).await()
+                            val firestoreGeneratedId = newDocRef.id
+                            // Aktualisiere den lokalen Artikel mit der neuen Firestore-ID
+                            val updatedArtikelWithId = artikel.copy(
+                                artikelId = firestoreGeneratedId,
+                                istLokalGeaendert = false,
+                                istLoeschungVorgemerkt = false
+                            )
+                            artikelDao.artikelEinfuegen(updatedArtikelWithId) // Speichern, da REPLACE verwendet wird
+                            Timber.d("Neuer Artikel in Firestore erstellt und Room aktualisiert: ${updatedArtikelWithId.artikelId}")
+                        } else {
+                            // BESTEHENDER ARTIKEL: Aktualisiere in Firestore
+                            firestoreCollection.document(artikel.artikelId).set(artikel).await() // set() überschreibt/erstellt
+                            // Nach erfolgreichem Sync 'istLokalGeaendert' auf false setzen
+                            artikelDao.artikelEinfuegen(artikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                            Timber.d("Artikel in Firestore synchronisiert (Speichern/Aktualisieren): ${artikel.artikelId}")
+                        }
+                    }
+                }
+
+                Timber.d("Artikel-Synchronisation mit Firestore abgeschlossen.")
+            } catch (e: Exception) {
+                Timber.e(e, "Fehler bei der Artikel-Synchronisation mit Firestore: ${e.message}")
             }
-            Timber.d("Synchronisation von ${firebaseArtikel.size} Artikeln aus Firestore nach Room abgeschlossen.")
-        } catch (e: Exception) {
-            Timber.e(e, "Fehler bei der Synchronisation von Artikeln aus Firestore.")
         }
     }
 }

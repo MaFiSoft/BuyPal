@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/MainActivity.kt
-// Stand: 2025-05-28_21:45 (mit Jetpack Compose Navigation und Artikelverwaltung)
+// Stand: 2025-05-29_16:55 (Angepasst von Gemini)
 
 package com.MaFiSoft.BuyPal
 
@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.items // Import für LazyListScope.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -108,6 +108,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// ... (Ihre vorhandenen Imports) ...
+
 // Composable-Funktion für die Benutzeroberfläche zur Benutzerverwaltung.
 // Diese Funktion ist nun ein 'Screen' innerhalb der Navigationsstruktur
 // und wird vom NavHost aufgerufen.
@@ -118,6 +120,7 @@ fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
     var benutzerEmail by remember { mutableStateOf("") }
 
     // Alle Benutzerdaten als Flow vom ViewModel sammeln und als State beobachten
+    // GEÄNDERT: 'initialValue' zu 'initial' geändert für Kompatibilität mit älteren Compose-Versionen
     val alleBenutzer by benutzerViewModel.alleBenutzer.collectAsState(initial = emptyList())
 
     // CoroutineScope für UI-bezogene Aktionen, die Coroutinen benötigen (z.B. onClick-Handler)
@@ -127,7 +130,7 @@ fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(16.dp), // Dies ist das Padding für den gesamten Column-Inhalt
         verticalArrangement = Arrangement.Center
     ) {
         // Eingabefeld für den Benutzernamen
@@ -168,26 +171,40 @@ fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
                     erstellungszeitpunkt = java.util.Date()
                 )
                 // ViewModel-Funktion zum Speichern aufrufen.
-                // Die Logik für Room und Firestore ist jetzt im ViewModel gekapselt.
-                benutzerViewModel.benutzerEinfuegen(neuerBenutzer)
+                benutzerViewModel.benutzerSpeichern(neuerBenutzer)
             }
             // Eingabefelder leeren, nachdem die Coroutine gestartet wurde
             benutzerName = ""
             benutzerEmail = ""
         }) {
-            Text("Benutzer speichern")
+            Text("Benutzer speichern (Lokal)") // Beschriftung angepasst
         }
+
+        // HIER kommt der neue Sync-Button rein:
+        Spacer(modifier = Modifier.height(8.dp)) // Kleiner Abstand zwischen den Buttons
+
+        Button(onClick = {
+            coroutineScope.launch {
+                benutzerViewModel.syncBenutzerDaten() // <-- DIESER BUTTON LÖST DEN SYNC AUS!
+            }
+        }) {
+            Text("Benutzer mit Firestore synchronisieren")
+        }
+        // Ende des neuen Sync-Buttons
+
         Spacer(modifier = Modifier.height(16.dp))
         // Überschrift für die Liste der gespeicherten Benutzer
         Text("Gespeicherte Benutzer:")
         // Liste zur Anzeige aller gespeicherten Benutzer
         LazyColumn {
-            items(alleBenutzer) { benutzer: BenutzerEntitaet ->
-                Text("ID: ${benutzer.benutzerId.take(4)}..., Name: ${benutzer.benutzername}, Email: ${benutzer.email}")
+            items(alleBenutzer) { benutzer ->
+                Text("ID: ${benutzer.benutzerId?.take(4) ?: "N/A"}..., Name: ${benutzer.benutzername}, Email: ${benutzer.email}")
             }
         }
     }
 }
+
+// ... (Ihre DefaultPreview-Funktion und andere Teile der MainActivity) ...
 
 // Preview-Funktion für Android Studio
 // HINWEIS: Die Preview zeigt nur den Inhalt des 'Text'-Composable,

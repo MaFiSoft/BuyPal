@@ -1,32 +1,48 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/AppDatabase.kt
-// Stand: 2025-05-28_22:45 (mit korrigiertem Converters-Import)
+// Stand: 2025-05-29_17:11 (Angepasst von Gemini - Korrekter Converter-Import)
 
 package com.MaFiSoft.BuyPal.data
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+
+// Importieren Sie alle Ihre Entitäten
 import com.MaFiSoft.BuyPal.data.BenutzerEntitaet
 import com.MaFiSoft.BuyPal.data.ArtikelEntitaet
-import com.MaFiSoft.BuyPal.data.Converters // KORRIGIERT: Korrekter Import für Converters
+import com.MaFiSoft.BuyPal.data.KategorieEntitaet
 
+// Importieren Sie alle Ihre DAOs
+import com.MaFiSoft.BuyPal.data.BenutzerDao
+import com.MaFiSoft.BuyPal.data.ArtikelDao
+import com.MaFiSoft.BuyPal.data.KategorieDao
 
-// Erhöhen Sie die Version bei jeder Schemaänderung.
-// Füge hier weitere Entitäten hinzu, sobald sie definiert sind.
+// KORRIGIERTER IMPORT für den Converter:
+// Die Klasse heißt "Converters" und liegt direkt im 'data'-Paket.
+import com.MaFiSoft.BuyPal.data.Converters // Angepasst: Importiert die 'Converters'-Klasse
+
+/**
+ * Room-Datenbankklasse für BuyPal.
+ * Definiert die Datenbankversion und listet alle Entitäten auf.
+ * Stellt die DAOs für den Datenzugriff bereit.
+ *
+ * Beachten Sie den Speicherort des Schemas für Room-Migrationen:
+ * Das wurde bereits in den Projekteinstellungen durch 'room.schemaLocation' hinzugefügt.
+ */
 @Database(
     entities = [
         BenutzerEntitaet::class,
-        ArtikelEntitaet::class
-        // Weitere Entitäten hier hinzufügen
+        ArtikelEntitaet::class,
+        KategorieEntitaet::class
     ],
-    version = 2, // WICHTIG: Die Datenbankversion wurde auf 2 erhöht, da ArtikelEntitaet hinzugefügt wurde
-    exportSchema = true // WICHTIG: Sollte 'true' sein, damit Room die Schemadateien generiert
+    version = 1,
+    exportSchema = true
 )
-@TypeConverters(Converters::class) // WICHTIG: Verwendet die korrekte Converters-Klasse
+// KORRIGIERT: Verwendet die tatsächlich vorhandene 'Converters'-Klasse
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
-    // DAO für Benutzer-Entitäten
+    // Definieren Sie abstrakte Funktionen, um auf Ihre DAOs zuzugreifen
     abstract fun getBenutzerDao(): BenutzerDao
-
-    // DAO für Artikel-Entitäten
     abstract fun getArtikelDao(): ArtikelDao
+    abstract fun getKategorieDao(): KategorieDao
 }

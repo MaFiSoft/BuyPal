@@ -1,5 +1,5 @@
-// app/src/main/java/com/MaFiSoft/BuyPal/data/ArtikelDao.kt
-// Stand: 2025-05-28_22:50 (Angepasst an BenutzerDao Muster)
+// com/MaFiSoft/BuyPal/data/ArtikelDao.kt
+// Angepasst an BenutzerDao Muster für Room-first und delayed sync
 
 package com.MaFiSoft.BuyPal.data
 
@@ -13,21 +13,32 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Data Access Object (DAO) fuer die ArtikelEntitaet.
  * Definiert Methoden fuer den Zugriff auf Artikeldaten in der Room-Datenbank.
+ * Angepasst fuer Room-first-Strategie.
  */
 @Dao
 interface ArtikelDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertArtikel(artikel: ArtikelEntitaet) // Konsistent mit BenutzerDao: "insert" statt "artikelEinfuegen"
+    suspend fun artikelEinfuegen(artikel: ArtikelEntitaet) // Name angepasst für Konsistenz (wie in BenutzerDao)
 
     @Update
-    suspend fun updateArtikel(artikel: ArtikelEntitaet) // Konsistent mit BenutzerDao: "update" statt "artikelAktualisieren"
+    suspend fun artikelAktualisieren(artikel: ArtikelEntitaet) // Name angepasst für Konsistenz
 
-    @Query("DELETE FROM artikel WHERE artikelId = :artikelId")
-    suspend fun deleteArtikel(artikelId: String) // Konsistent mit BenutzerDao: Löschen per ID ist üblich.
+    // Hole Artikel über die Firestore ID
+    @Query("SELECT * FROM artikel WHERE artikelId = :artikelFirestoreId")
+    fun getArtikelByFirestoreId(artikelFirestoreId: String): Flow<ArtikelEntitaet?>
 
-    @Query("SELECT * FROM artikel WHERE artikelId = :artikelId")
-    fun getArtikelById(artikelId: String): Flow<ArtikelEntitaet?>
+    // Hole Artikel über die interne Room ID
+    @Query("SELECT * FROM artikel WHERE artikelRoomId = :artikelRoomId")
+    fun getArtikelByRoomId(artikelRoomId: Int): Flow<ArtikelEntitaet?>
+
+    // Löschen nach Firestore ID
+    @Query("DELETE FROM artikel WHERE artikelId = :artikelFirestoreId")
+    suspend fun deleteArtikelByFirestoreId(artikelFirestoreId: String)
+
+    // Löschen nach Room ID
+    @Query("DELETE FROM artikel WHERE artikelRoomId = :artikelRoomId")
+    suspend fun deleteArtikelByRoomId(artikelRoomId: Int)
 
     @Query("SELECT * FROM artikel WHERE listenId = :listenId ORDER BY name ASC")
     fun getArtikelFuerListe(listenId: String): Flow<List<ArtikelEntitaet>>
@@ -45,5 +56,12 @@ interface ArtikelDao {
     suspend fun alleArtikelFuerListeLoeschen(listenId: String)
 
     @Query("SELECT * FROM artikel")
-    fun getAllArtikel(): Flow<List<ArtikelEntitaet>> // Für den allgemeinen Zugriff, falls benötigt
+    fun getAllArtikel(): Flow<List<ArtikelEntitaet>>
+
+    // NEU: Methoden zum Abrufen von unsynchronisierten Daten (analog BenutzerDao)
+    @Query("SELECT * FROM artikel WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")
+    suspend fun getUnsynchronisierteArtikel(): List<ArtikelEntitaet>
+
+    @Query("SELECT * FROM artikel WHERE istLoeschungVorgemerkt = 1")
+    suspend fun getArtikelFuerLoeschung(): List<ArtikelEntitaet>
 }

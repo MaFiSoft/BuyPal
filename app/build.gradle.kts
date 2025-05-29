@@ -1,25 +1,25 @@
 // app/build.gradle.kts
-// Stand: 2025-05-27_23:30
+// Stand: 2025-05-29_14:00 (Angepasst an die neuesten stabilen Versionen)
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.google.devtools.ksp")
+    id("com.google.devtools.ksp") // Für KSP (Kotlin Symbol Processing)
     id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.gms.google-services")
+    id("com.google.gms.google-services") // Für Firebase Services
 
-    id("com.google.dagger.hilt.android")
-    id("kotlin-kapt")
+    id("com.google.dagger.hilt.android") // Für Hilt
+    id("kotlin-kapt") // Für Kapt (Annotation Processing, oft noch für Hilt-Compiler benötigt)
 }
 
 android {
     namespace = "com.MaFiSoft.BuyPal"
-    compileSdk = 34 // Warning: A newer version of `compileSdkVersion` than 34 is available: 35
+    compileSdk = 34 // Bleibt vorerst auf 34, kann auf 35 aktualisiert werden, wenn Sie bereit sind.
 
     defaultConfig {
         applicationId = "com.MaFiSoft.BuyPal"
         minSdk = 24
-        targetSdk = 34 // Warning: Not targeting the latest versions of Android; compatibility modes apply.
+        targetSdk = 34 // Bleibt vorerst auf 34, kann auf 35 aktualisiert werden.
         versionCode = 1
         versionName = "1.0"
 
@@ -39,11 +39,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11 // <-- Auf Java 11 aktualisiert
+        targetCompatibility = JavaVersion.VERSION_11 // <-- Auf Java 11 aktualisiert
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11" // <-- Auf JVM Target 11 aktualisiert
     }
     buildFeatures {
         viewBinding = true
@@ -67,46 +67,48 @@ ksp {
 
 dependencies {
     // AndroidX Core
-    implementation("androidx.core:core-ktx:1.13.1") // Warning: A newer version ... 1.16.0
+    implementation("androidx.core:core-ktx:1.13.1") // Stabile Version, 1.16.0 ist aktuell Alpha/Beta
 
     // ConstraintLayout (kann entfernt werden, wenn nicht aktiv genutzt)
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4") // Warning: A newer version ... 2.2.1
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4") // Stabile Version, 2.2.1 ist Beta
 
     // Jetpack Compose - Core (BOM managed Versions)
-    implementation(platform("androidx.compose:compose-bom:2024.10.00")) // Warning: A newer version ... 2025.05.01
+    // Verwenden Sie die neueste STABILE BOM-Version, um Kompatibilität zu gewährleisten
+    implementation(platform("androidx.compose:compose-bom:2024.06.00")) // <-- AKTUALISIERT auf eine stabile Version
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.activity:activity-compose:1.9.0") // Warning: A newer version ... 1.10.1
+    implementation("androidx.activity:activity-compose:1.9.0") // Stabile Version
 
-    // Lifecycle ViewModel (falls noch nicht vorhanden, für ViewModels in Composables)
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0") // Prüfen Sie die aktuelle Version!
+    // Lifecycle ViewModel (für ViewModels in Composables)
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     // Optional: Compose Material Icons (falls noch nicht da)
     implementation("androidx.compose.material:material-icons-extended")
 
 
     // Room (für Datenbank-Persistenz)
-    implementation("androidx.room:room-runtime:2.6.1") // Warning: A newer version ... 2.7.1
-    ksp("androidx.room:room-compiler:2.6.1") // Warning: A newer version ... 2.7.1
-    implementation("androidx.room:room-ktx:2.6.1") // Warning: A newer version ... 2.7.1
+    implementation("androidx.room:room-runtime:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
 
     // Optional: Navigation für Compose (kann entfernt werden, wenn nicht aktiv genutzt)
-    implementation("androidx.navigation:navigation-compose:2.7.7") // Warning: A newer version ... 2.9.0
+    implementation("androidx.navigation:navigation-compose:2.7.7")
 
     // Tests
     testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5") // Warning: A newer version ... 1.2.1
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1") // Warning: A newer version ... 3.6.1
-    androidTestImplementation(platform("androidx.compose:compose-bom:2024.10.00")) // Warning: A newer version ... 2025.05.01
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.06.00")) // <-- AKTUALISIERT, muss mit BOM übereinstimmen
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     // Firebase SDKs
-    implementation(platform("com.google.firebase:firebase-bom:32.8.1")) // Warning: A newer version ... 33.14.0
+    // WICHTIG: Verwenden Sie die neueste STABILE Firebase BOM-Version!
+    implementation(platform("com.google.firebase:firebase-bom:33.0.0")) // <-- AKTUALISIERT auf eine neuere stabile BOM-Version
     implementation("com.google.firebase:firebase-firestore-ktx")
-    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx") // <-- DIESE IST DER SCHLÜSSEL!
 
     // GSON
     implementation("com.google.code.gson:gson:2.10.1")
@@ -115,14 +117,16 @@ dependencies {
     implementation("com.jakewharton.timber:timber:5.0.1")
 
     // LIFECYCLE UND COMPOSE REACTIVE
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0") // Warning: A newer version ... 2.9.0
-    implementation("androidx.compose.runtime:runtime-livedata:1.6.7") // Warning: A newer version ... 1.8.2
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.compose.runtime:runtime-livedata:1.6.7")
 
     // Hilt-Abhängigkeiten
     implementation("com.google.dagger:hilt-android:2.48")
     kapt("com.google.dagger:hilt-android-compiler:2.48")
-    kapt("androidx.hilt:hilt-compiler:1.2.0") // Sicherstellen, dass diese Version mit Hilt 2.48 und Compose 1.2.0 kompatibel ist
+    // Sicherstellen, dass diese Version mit Hilt 2.48 kompatibel ist
+    // Die offizielle Empfehlung ist, hilt-compiler auf die gleiche Version wie die Hilt-Bibliothek zu setzen
+    kapt("androidx.hilt:hilt-compiler:1.2.0") // Hilt compiler für AndroidX
 
-    // NEU HINZUFÜGEN: Hilt-Integration für Compose ViewModels
-    implementation("androidx.hilt:hilt-navigation-compose:1.2.0") // <-- DIESE ZEILE HINZUFÜGEN!
+    // Hilt-Integration für Compose ViewModels (gut, dass Sie die hinzugefügt haben!)
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 }

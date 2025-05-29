@@ -1,24 +1,30 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/di/AppModule.kt
-// Stand: 2025-05-28_23:00 (WIRKLICH FINAL & KONSISTENT: Beide Repositories werden bereitgestellt)
+// Stand: 2025-05-29_17:59 (Angepasst von Gemini - Korrekter AppDatabase Import)
 
 package com.MaFiSoft.BuyPal.di
 
 import android.content.Context
 import androidx.room.Room
-import com.MaFiSoft.BuyPal.data.AppDatabase
+// KORRIGIERTER IMPORT für AppDatabase hinzugefügt
+import com.MaFiSoft.BuyPal.data.AppDatabase // <-- DIESER IMPORT WAR NOTWENDIG
+
 import com.MaFiSoft.BuyPal.data.BenutzerDao
 import com.MaFiSoft.BuyPal.data.ArtikelDao
+import com.MaFiSoft.BuyPal.data.KategorieDao // Hinzugefügt: Für KategorieRepositoryImpl
+
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.auth.FirebaseAuth
 
 // KORRIGIERTE IMPORTS für die Repository-Interfaces und deren Implementierungen
-// Benutzer Repositories liegen direkt unter 'repository' (gemäss Ihren Dateien)
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
 import com.MaFiSoft.BuyPal.repository.impl.BenutzerRepositoryImpl
 
-// Artikel Repositories liegen auch direkt unter 'repository' (gemäss Ihrer Anpassung)
-import com.MaFiSoft.BuyPal.repository.ArtikelRepository // KORRIGIERT: KEIN .data. im Pfad
-import com.MaFiSoft.BuyPal.repository.impl.ArtikelRepositoryImpl // KORRIGIERT: KEIN .data. im Pfad
+import com.MaFiSoft.BuyPal.repository.ArtikelRepository
+import com.MaFiSoft.BuyPal.repository.impl.ArtikelRepositoryImpl
+
+// NEUE IMPORTE für KategorieRepository
+import com.MaFiSoft.BuyPal.repository.KategorieRepository // Hinzugefügt: KategorieRepository Interface
+import com.MaFiSoft.BuyPal.repository.impl.KategorieRepositoryImpl // Hinzugefügt: KategorieRepository Implementierung
 
 
 import dagger.Module
@@ -52,7 +58,7 @@ object AppModule {
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
         return Room.databaseBuilder(
             context,
-            AppDatabase::class.java,
+            AppDatabase::class.java, // <-- Diese Zeile benötigt den korrekten Import
             "buypal_database"
         )
             .fallbackToDestructiveMigration()
@@ -73,6 +79,14 @@ object AppModule {
         return database.getArtikelDao()
     }
 
+    // NEU: Stellt das KategorieDao bereit.
+    @Provides
+    @Singleton
+    fun provideKategorieDao(database: AppDatabase): KategorieDao {
+        return database.getKategorieDao()
+    }
+
+
     // Bereitstellung des BenutzerRepository (Interface) durch die Implementierungsklasse.
     @Provides
     @Singleton
@@ -84,8 +98,7 @@ object AppModule {
         return BenutzerRepositoryImpl(benutzerDao, firestore, firebaseAuth)
     }
 
-    // KORRIGIERT: Bereitstellung des ArtikelRepository (Interface) durch die Implementierungsklasse.
-    // Dieser Block MUSS vorhanden sein, um die Architektur-Konsistenz mit Benutzer zu wahren.
+    // Bereitstellung des ArtikelRepository (Interface) durch die Implementierungsklasse.
     @Provides
     @Singleton
     fun provideArtikelRepository(
@@ -93,5 +106,15 @@ object AppModule {
         firestore: FirebaseFirestore
     ): ArtikelRepository {
         return ArtikelRepositoryImpl(artikelDao, firestore)
+    }
+
+    // NEU: Bereitstellung des KategorieRepository (Interface) durch die Implementierungsklasse.
+    @Provides
+    @Singleton
+    fun provideKategorieRepository(
+        kategorieDao: KategorieDao,
+        firestore: FirebaseFirestore
+    ): KategorieRepository {
+        return KategorieRepositoryImpl(kategorieDao, firestore)
     }
 }
