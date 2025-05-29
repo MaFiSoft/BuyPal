@@ -55,8 +55,12 @@ interface ArtikelDao {
     @Query("DELETE FROM artikel WHERE listenId = :listenId")
     suspend fun alleArtikelFuerListeLoeschen(listenId: String)
 
-    @Query("SELECT * FROM artikel")
+    @Query("SELECT * FROM artikel WHERE istLoeschungVorgemerkt = 0 ORDER BY name ASC") // Angepasst: Filtert gelöschte heraus
     fun getAllArtikel(): Flow<List<ArtikelEntitaet>>
+
+    // NEU: Methode zum Abrufen ALLER Artikel, einschließlich der zur Löschung vorgemerkten (für Sync-Logik benötigt)
+    @Query("SELECT * FROM artikel")
+    suspend fun getAllArtikelIncludingMarkedForDeletion(): List<ArtikelEntitaet>
 
     // NEU: Methoden zum Abrufen von unsynchronisierten Daten (analog BenutzerDao)
     @Query("SELECT * FROM artikel WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")

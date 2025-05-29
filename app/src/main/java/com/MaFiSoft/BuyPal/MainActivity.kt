@@ -47,7 +47,7 @@ import com.MaFiSoft.BuyPal.ui.screens.HomeScreen // Der Composable für den Home
 
 // NEUE IMPORTS für Artikelverwaltung
 import com.MaFiSoft.BuyPal.ui.screens.SplashScreen // Der Composable für den Splash-Bildschirm
-import com.MaFiSoft.BuyPal.ui.screens.ArtikelTestUI // NEU: Der Composable für den Artikel-Bildschirm
+import com.MaFiSoft.BuyPal.data.ArtikelEntitaet // NEU: Datenmodell für Artikel
 import com.MaFiSoft.BuyPal.presentation.viewmodel.ArtikelViewModel // NEU: Ihr ViewModel für Artikel
 
 
@@ -99,7 +99,7 @@ class MainActivity : ComponentActivity() {
                         // Das ArtikelViewModel wird hier über Hilt injiziert.
                         composable(Screen.ArtikelVerwaltung.route) {
                             val artikelViewModel: ArtikelViewModel = hiltViewModel() // Hilt injiziert das ArtikelViewModel
-                            ArtikelTestUI(viewModel = artikelViewModel) // Zeigt den ArtikelTestUI Screen
+                            ArtikelTestUI(artikelViewModel = artikelViewModel) // Zeigt den ArtikelTestUI Screen
                         }
                     }
                 }
@@ -108,12 +108,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ... (Ihre vorhandenen Imports) ...
-
 // Composable-Funktion für die Benutzeroberfläche zur Benutzerverwaltung.
 // Diese Funktion ist nun ein 'Screen' innerhalb der Navigationsstruktur
 // und wird vom NavHost aufgerufen.
-// ... (bestehende Imports) ...
 
 @Composable
 fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
@@ -220,15 +217,108 @@ fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
     }
 }
 
-// ... (Ihre DefaultPreview-Funktion und andere Teile der MainActivity) ...
+// NEU: Composable für die Artikelverwaltung (analog BenutzerTestUI)
+@Composable
+fun ArtikelTestUI(artikelViewModel: ArtikelViewModel) {
+    var artikelName by remember { mutableStateOf("") }
+    var artikelMenge by remember { mutableStateOf("1.0") }
+    var artikelEinheit by remember { mutableStateOf("") }
+    var artikelListenId by remember { mutableStateOf("test_list_id") } // Beispiel Listen-ID
+
+    val alleArtikel by artikelViewModel.alleArtikel.collectAsState(initial = emptyList())
+    val coroutineScope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        TextField(
+            value = artikelName,
+            onValueChange = { artikelName = it },
+            label = { Text("Artikelname") }
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        TextField(
+            value = artikelMenge,
+            onValueChange = { artikelMenge = it },
+            label = { Text("Menge") }
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        TextField(
+            value = artikelEinheit,
+            onValueChange = { artikelEinheit = it },
+            label = { Text("Einheit") }
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        TextField(
+            value = artikelListenId,
+            onValueChange = { artikelListenId = it },
+            label = { Text("Listen ID") }
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(onClick = {
+            val neuerArtikel = ArtikelEntitaet(
+                artikelId = java.util.UUID.randomUUID().toString(), // Neue ID für Firestore
+                name = artikelName,
+                menge = artikelMenge.toDoubleOrNull() ?: 1.0,
+                einheit = artikelEinheit,
+                listenId = artikelListenId,
+                erstellungszeitpunkt = java.util.Date()
+            )
+            coroutineScope.launch {
+                artikelViewModel.artikelSpeichern(neuerArtikel)
+            }
+            artikelName = ""
+            artikelMenge = "1.0"
+            artikelEinheit = ""
+        }) {
+            Text("Artikel speichern (Lokal)")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(onClick = {
+            coroutineScope.launch {
+                artikelViewModel.syncArtikelDaten() // Sync-Button für Artikel
+            }
+        }) {
+            Text("Artikel mit Firestore synchronisieren")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Gespeicherte Artikel:")
+        LazyColumn {
+            items(alleArtikel) { artikel ->
+                Column {
+                    Text("ID: ${artikel.artikelId?.take(4) ?: "N/A"}..., Name: ${artikel.name}, Menge: ${artikel.menge}, Einheit: ${artikel.einheit}, Liste: ${artikel.listenId}")
+                    // Löschen-Button für Artikel
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                artikelViewModel.artikelLoeschen(artikel)
+                                Timber.d("Artikel ${artikel.name} zur Loeschung vorgemerkt.")
+                            }
+                        },
+                        enabled = artikel.artikelId != null && !artikel.istLoeschungVorgemerkt
+                    ) {
+                        Text("Löschen")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+    }
+}
+
 
 // Preview-Funktion für Android Studio
-// HINWEIS: Die Preview zeigt nur den Inhalt des 'Text'-Composable,
-// da die vollständige Navigationsstruktur im Preview-Kontext nicht emuliert wird.
 @Preview(showBackground = true)
 @Composable
 fun DefaultPreview() {
     BuyPalTheme {
-        Text("Benutzer Test UI (Preview)")
+        Text("Vorschau der Main-Activity (nicht voll funktionsfähig)")
     }
 }
