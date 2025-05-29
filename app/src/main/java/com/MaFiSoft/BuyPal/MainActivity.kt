@@ -113,6 +113,8 @@ class MainActivity : ComponentActivity() {
 // Composable-Funktion für die Benutzeroberfläche zur Benutzerverwaltung.
 // Diese Funktion ist nun ein 'Screen' innerhalb der Navigationsstruktur
 // und wird vom NavHost aufgerufen.
+// ... (bestehende Imports) ...
+
 @Composable
 fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
     // Zustandsvariablen für Benutzereingaben
@@ -120,7 +122,6 @@ fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
     var benutzerEmail by remember { mutableStateOf("") }
 
     // Alle Benutzerdaten als Flow vom ViewModel sammeln und als State beobachten
-    // GEÄNDERT: 'initialValue' zu 'initial' geändert für Kompatibilität mit älteren Compose-Versionen
     val alleBenutzer by benutzerViewModel.alleBenutzer.collectAsState(initial = emptyList())
 
     // CoroutineScope für UI-bezogene Aktionen, die Coroutinen benötigen (z.B. onClick-Handler)
@@ -180,7 +181,6 @@ fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
             Text("Benutzer speichern (Lokal)") // Beschriftung angepasst
         }
 
-        // HIER kommt der neue Sync-Button rein:
         Spacer(modifier = Modifier.height(8.dp)) // Kleiner Abstand zwischen den Buttons
 
         Button(onClick = {
@@ -190,7 +190,6 @@ fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
         }) {
             Text("Benutzer mit Firestore synchronisieren")
         }
-        // Ende des neuen Sync-Buttons
 
         Spacer(modifier = Modifier.height(16.dp))
         // Überschrift für die Liste der gespeicherten Benutzer
@@ -198,7 +197,24 @@ fun BenutzerTestUI(benutzerViewModel: BenutzerViewModel) {
         // Liste zur Anzeige aller gespeicherten Benutzer
         LazyColumn {
             items(alleBenutzer) { benutzer ->
-                Text("ID: ${benutzer.benutzerId?.take(4) ?: "N/A"}..., Name: ${benutzer.benutzername}, Email: ${benutzer.email}")
+                Column {
+                    Text("ID: ${benutzer.benutzerId?.take(4) ?: "N/A"}..., Name: ${benutzer.benutzername}, Email: ${benutzer.email}")
+                    // --- NEUER LÖSCHEN-BUTTON FÜR JEDEN BENUTZER ---
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                benutzerViewModel.benutzerLoeschen(benutzer)
+                                Timber.d("Benutzer ${benutzer.benutzername} zur Loeschung vorgemerkt.")
+                            }
+                        },
+                        // Deaktiviere den Button, wenn der Benutzer keine Firebase ID hat oder schon zur Löschung vorgemerkt ist (optional)
+                        enabled = benutzer.benutzerId != null && !benutzer.istLoeschungVorgemerkt
+                    ) {
+                        Text("Löschen")
+                    }
+                    // --- ENDE LÖSCHEN-BUTTON ---
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
             }
         }
     }

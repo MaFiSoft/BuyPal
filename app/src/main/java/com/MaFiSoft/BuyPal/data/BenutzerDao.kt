@@ -33,8 +33,15 @@ interface BenutzerDao {
     @Query("SELECT * FROM benutzer LIMIT 1") // Diese Query kann ueberdacht werden, wenn mehrere Benutzer moeglich sind
     fun getAktuellerBenutzerFromRoom(): Flow<BenutzerEntitaet?>
 
-    @Query("SELECT * FROM benutzer")
+    // --- ANPASSUNG HIER ---
+    // Holt alle Benutzer, die NICHT zur Loeschung vorgemerkt sind
+    @Query("SELECT * FROM benutzer WHERE istLoeschungVorgemerkt = 0")
     fun getAllBenutzer(): Flow<List<BenutzerEntitaet>>
+
+    // Hole ALLE Benutzer, auch die zur Loeschung vorgemerkten (fuer interne Sync-Logik noetig)
+    @Query("SELECT * FROM benutzer")
+    suspend fun getAllBenutzerIncludingMarkedForDeletion(): List<BenutzerEntitaet>
+    // --- ENDE ANPASSUNG ---
 
     // Methoden zum Abrufen von unsynchronisierten Daten
     @Query("SELECT * FROM benutzer WHERE istLokalGeaendert = 1")
