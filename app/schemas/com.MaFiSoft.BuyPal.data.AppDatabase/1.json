@@ -1,0 +1,248 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "1af6ade6609987f9ad18f500bc461c87",
+    "entities": [
+      {
+        "tableName": "benutzer",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`benutzerRoomId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `benutzerId` TEXT, `benutzername` TEXT NOT NULL, `email` TEXT NOT NULL, `erstellungszeitpunkt` INTEGER, `profilbildUrl` TEXT, `zuletztGeaendert` INTEGER, `istLokalGeaendert` INTEGER NOT NULL, `istLoeschungVorgemerkt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "benutzerRoomId",
+            "columnName": "benutzerRoomId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "benutzerId",
+            "columnName": "benutzerId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "benutzername",
+            "columnName": "benutzername",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "email",
+            "columnName": "email",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "erstellungszeitpunkt",
+            "columnName": "erstellungszeitpunkt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "profilbildUrl",
+            "columnName": "profilbildUrl",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "zuletztGeaendert",
+            "columnName": "zuletztGeaendert",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "istLokalGeaendert",
+            "columnName": "istLokalGeaendert",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "istLoeschungVorgemerkt",
+            "columnName": "istLoeschungVorgemerkt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "benutzerRoomId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "artikel",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`artikelRoomId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `artikelId` TEXT, `name` TEXT NOT NULL, `beschreibung` TEXT, `menge` REAL NOT NULL, `einheit` TEXT, `preis` REAL, `listenId` TEXT NOT NULL, `kategorieId` TEXT, `geschaeftId` TEXT, `abgehakt` INTEGER NOT NULL, `erstellungszeitpunkt` INTEGER, `zuletztGeaendert` INTEGER, `istLokalGeaendert` INTEGER NOT NULL, `istLoeschungVorgemerkt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "artikelRoomId",
+            "columnName": "artikelRoomId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artikelId",
+            "columnName": "artikelId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "beschreibung",
+            "columnName": "beschreibung",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "menge",
+            "columnName": "menge",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "einheit",
+            "columnName": "einheit",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "preis",
+            "columnName": "preis",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "listenId",
+            "columnName": "listenId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kategorieId",
+            "columnName": "kategorieId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "geschaeftId",
+            "columnName": "geschaeftId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "abgehakt",
+            "columnName": "abgehakt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "erstellungszeitpunkt",
+            "columnName": "erstellungszeitpunkt",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "zuletztGeaendert",
+            "columnName": "zuletztGeaendert",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "istLokalGeaendert",
+            "columnName": "istLokalGeaendert",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "istLoeschungVorgemerkt",
+            "columnName": "istLoeschungVorgemerkt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "artikelRoomId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "kategorie",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`kategorieId` TEXT NOT NULL, `name` TEXT NOT NULL, `beschreibung` TEXT, `bildUrl` TEXT, `elternKategorieId` TEXT, `reihenfolge` INTEGER, `icon` TEXT, `erstellungszeitpunkt` INTEGER, PRIMARY KEY(`kategorieId`))",
+        "fields": [
+          {
+            "fieldPath": "kategorieId",
+            "columnName": "kategorieId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "beschreibung",
+            "columnName": "beschreibung",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "bildUrl",
+            "columnName": "bildUrl",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "elternKategorieId",
+            "columnName": "elternKategorieId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "reihenfolge",
+            "columnName": "reihenfolge",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "icon",
+            "columnName": "icon",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "erstellungszeitpunkt",
+            "columnName": "erstellungszeitpunkt",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "kategorieId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1af6ade6609987f9ad18f500bc461c87')"
+    ]
+  }
+}
