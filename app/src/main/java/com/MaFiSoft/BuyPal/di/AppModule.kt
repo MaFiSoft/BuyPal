@@ -1,31 +1,39 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/di/AppModule.kt
-// Stand: 2025-05-29_17:59 (Angepasst von Gemini - Korrekter AppDatabase Import)
+// Stand: 2025-06-02_23:12:00
 
 package com.MaFiSoft.BuyPal.di
 
 import android.content.Context
 import androidx.room.Room
-// KORRIGIERTER IMPORT für AppDatabase hinzugefügt
-import com.MaFiSoft.BuyPal.data.AppDatabase // <-- DIESER IMPORT WAR NOTWENDIG
+import com.MaFiSoft.BuyPal.data.AppDatabase
 
 import com.MaFiSoft.BuyPal.data.BenutzerDao
 import com.MaFiSoft.BuyPal.data.ArtikelDao
-import com.MaFiSoft.BuyPal.data.KategorieDao // Hinzugefügt: Für KategorieRepositoryImpl
+import com.MaFiSoft.BuyPal.data.KategorieDao
+import com.MaFiSoft.BuyPal.data.EinkaufslisteDao
+import com.MaFiSoft.BuyPal.data.GruppeDao
+import com.MaFiSoft.BuyPal.data.ProduktDao // NEU: Import für ProduktDao
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.auth.FirebaseAuth
 
-// KORRIGIERTE IMPORTS für die Repository-Interfaces und deren Implementierungen
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
 import com.MaFiSoft.BuyPal.repository.impl.BenutzerRepositoryImpl
 
 import com.MaFiSoft.BuyPal.repository.ArtikelRepository
 import com.MaFiSoft.BuyPal.repository.impl.ArtikelRepositoryImpl
 
-// NEUE IMPORTE für KategorieRepository
-import com.MaFiSoft.BuyPal.repository.KategorieRepository // Hinzugefügt: KategorieRepository Interface
-import com.MaFiSoft.BuyPal.repository.impl.KategorieRepositoryImpl // Hinzugefügt: KategorieRepository Implementierung
+import com.MaFiSoft.BuyPal.repository.KategorieRepository
+import com.MaFiSoft.BuyPal.repository.impl.KategorieRepositoryImpl
 
+import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
+import com.MaFiSoft.BuyPal.repository.impl.EinkaufslisteRepositoryImpl
+
+import com.MaFiSoft.BuyPal.repository.GruppeRepository
+import com.MaFiSoft.BuyPal.repository.impl.GruppeRepositoryImpl
+
+import com.MaFiSoft.BuyPal.repository.ProduktRepository // NEU: Import für ProduktRepository
+import com.MaFiSoft.BuyPal.repository.impl.ProduktRepositoryImpl // NEU: Import für ProduktRepositoryImpl
 
 import dagger.Module
 import dagger.Provides
@@ -58,7 +66,7 @@ object AppModule {
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
         return Room.databaseBuilder(
             context,
-            AppDatabase::class.java, // <-- Diese Zeile benötigt den korrekten Import
+            AppDatabase::class.java,
             "buypal_database"
         )
             .fallbackToDestructiveMigration()
@@ -79,11 +87,32 @@ object AppModule {
         return database.getArtikelDao()
     }
 
-    // NEU: Stellt das KategorieDao bereit.
+    // Stellt das KategorieDao bereit.
     @Provides
     @Singleton
     fun provideKategorieDao(database: AppDatabase): KategorieDao {
         return database.getKategorieDao()
+    }
+
+    // Hinzugefügt: Stellt das EinkaufslisteDao bereit.
+    @Provides
+    @Singleton
+    fun provideEinkaufslisteDao(database: AppDatabase): EinkaufslisteDao {
+        return database.getEinkaufslisteDao()
+    }
+
+    // Hinzugefügt: Stellt das GruppeDao bereit.
+    @Provides
+    @Singleton
+    fun provideGruppeDao(database: AppDatabase): GruppeDao {
+        return database.getGruppeDao()
+    }
+
+    // NEU: Stellt das ProduktDao bereit.
+    @Provides
+    @Singleton
+    fun provideProduktDao(database: AppDatabase): ProduktDao {
+        return database.getProduktDao()
     }
 
 
@@ -92,10 +121,9 @@ object AppModule {
     @Singleton
     fun provideBenutzerRepository(
         benutzerDao: BenutzerDao,
-        firestore: FirebaseFirestore,
-        firebaseAuth: FirebaseAuth
+        firestore: FirebaseFirestore
     ): BenutzerRepository {
-        return BenutzerRepositoryImpl(benutzerDao, firestore, firebaseAuth)
+        return BenutzerRepositoryImpl(benutzerDao, firestore)
     }
 
     // Bereitstellung des ArtikelRepository (Interface) durch die Implementierungsklasse.
@@ -108,7 +136,7 @@ object AppModule {
         return ArtikelRepositoryImpl(artikelDao, firestore)
     }
 
-    // NEU: Bereitstellung des KategorieRepository (Interface) durch die Implementierungsklasse.
+    // Bereitstellung des KategorieRepository (Interface) durch die Implementierungsklasse.
     @Provides
     @Singleton
     fun provideKategorieRepository(
@@ -116,5 +144,45 @@ object AppModule {
         firestore: FirebaseFirestore
     ): KategorieRepository {
         return KategorieRepositoryImpl(kategorieDao, firestore)
+    }
+
+    // Hinzugefügt: Bereitstellung des EinkaufslisteRepository.
+    @Provides
+    @Singleton
+    fun provideEinkaufslisteRepository(
+        einkaufslisteDao: EinkaufslisteDao,
+        firestore: FirebaseFirestore
+    ): EinkaufslisteRepository {
+        return EinkaufslisteRepositoryImpl(einkaufslisteDao, firestore)
+    }
+
+    // Hinzugefügt: Bereitstellung des GruppeRepository (Interface) durch die Implementierungsklasse.
+    @Provides
+    @Singleton
+    fun provideGruppeRepository(
+        gruppeDao: GruppeDao,
+        firestore: FirebaseFirestore
+    ): GruppeRepository {
+        return GruppeRepositoryImpl(gruppeDao, firestore)
+    }
+
+    // Hinzugefügt: Bereitstellung der konkreten GruppeRepositoryImpl für spezifische Injektion (z.B. im ViewModel)
+    @Provides
+    @Singleton
+    fun provideGruppeRepositoryImpl(
+        gruppeDao: GruppeDao,
+        firestore: FirebaseFirestore
+    ): GruppeRepositoryImpl {
+        return GruppeRepositoryImpl(gruppeDao, firestore)
+    }
+
+    // NEU: Bereitstellung des ProduktRepository (Interface) durch die Implementierungsklasse.
+    @Provides
+    @Singleton
+    fun provideProduktRepository(
+        produktDao: ProduktDao,
+        firestore: FirebaseFirestore
+    ): ProduktRepository {
+        return ProduktRepositoryImpl(produktDao, firestore)
     }
 }

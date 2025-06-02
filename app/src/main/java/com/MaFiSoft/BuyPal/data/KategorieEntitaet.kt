@@ -1,5 +1,5 @@
-// com/MaFiSoft/BuyPal/data/KategorieEntitaet.kt
-// Stand: 2025-05-29 (Unverändert)
+// app/src/main/java/com/MaFiSoft/BuyPal/data/KategorieEntitaet.kt
+// Stand: 2025-06-02_00:05:00
 
 package com.MaFiSoft.BuyPal.data
 
@@ -22,6 +22,9 @@ import java.util.Date
  * @param reihenfolge Optional: Zur Festlegung der Reihenfolge in Listen.
  * @param icon Optional: Fuer ein Icon, das die Kategorie darstellt.
  * @param erstellungszeitpunkt Zeitstempel der Erstellung (Firestore ServerTimestamp).
+ * @param zuletztGeaendert Zeitstempel der letzten Aenderung, um Konflikte zu loesen und Sync-Bedarf zu erkennen.
+ * @param istLokalGeaendert Flag, das anzeigt, ob der Datensatz lokale (unsynchronisierte) Aenderungen hat.
+ * @param istLoeschungVorgemerkt Flag, das anzeigt, ob der Datensatz lokal geloescht wurde, aber noch in Firestore geloescht werden muss.
  */
 @Entity(tableName = "kategorie") // Name der Tabelle in Room (Kleinbuchstaben, konsistent zu 'benutzer' und 'artikel')
 data class KategorieEntitaet(
@@ -35,5 +38,9 @@ data class KategorieEntitaet(
     val reihenfolge: Int? = null,
     val icon: String? = null,
     @ServerTimestamp
-    val erstellungszeitpunkt: Date? = null
+    val erstellungszeitpunkt: Date? = null,
+    // Felder für Room-first und Sync-Logik (Goldstandard)
+    val zuletztGeaendert: Date? = null, // Zeitstempel fuer Last-Write-Wins (wird manuell/automatisch gesetzt)
+    val istLokalGeaendert: Boolean = false, // Flag, um zu wissen, ob Sync noetig ist
+    val istLoeschungVorgemerkt: Boolean = false // Flag fuer Soft-Delete vor Sync
 )

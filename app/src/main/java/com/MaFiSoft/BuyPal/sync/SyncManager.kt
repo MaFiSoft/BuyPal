@@ -1,11 +1,11 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/sync/SyncManager.kt
-// Stand: 2025-05-29 (Aktualisiert von Gemini)
+// Stand: 2025-06-02_02:00:00 (KORRIGIERT: Aufrufe der Repository-Methoden auf Deutsch)
 
 package com.MaFiSoft.BuyPal.sync
 
 import com.MaFiSoft.BuyPal.repository.ArtikelRepository
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
-import com.MaFiSoft.BuyPal.repository.KategorieRepository // NEU: Import für KategorieRepository
+import com.MaFiSoft.BuyPal.repository.KategorieRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -21,7 +21,7 @@ import javax.inject.Singleton
 class SyncManager @Inject constructor(
     private val benutzerRepository: BenutzerRepository,
     private val artikelRepository: ArtikelRepository,
-    private val kategorieRepository: KategorieRepository // NEU: KategorieRepository injizieren
+    private val kategorieRepository: KategorieRepository
 ) {
     private val syncScope = CoroutineScope(Dispatchers.IO)
 
@@ -37,15 +37,15 @@ class SyncManager @Inject constructor(
                 // oder um die Last auf Firestore/Netzwerk zu steuern.
 
                 Timber.d("SyncManager: Synchronisiere Benutzerdaten...")
-                benutzerRepository.syncBenutzerMitFirestore()
+                benutzerRepository.syncBenutzerDaten() // Aufruf auf Deutsch
                 Timber.d("SyncManager: Benutzerdaten synchronisiert.")
 
                 Timber.d("SyncManager: Synchronisiere Artikeldaten...")
-                artikelRepository.syncArtikelMitFirestore()
+                artikelRepository.syncArtikelDaten() // Aufruf auf Deutsch
                 Timber.d("SyncManager: Artikeldaten synchronisiert.")
 
                 Timber.d("SyncManager: Synchronisiere Kategoriedaten...")
-                kategorieRepository.syncKategorienMitFirestore() // NEU: Synchronisation für Kategorien aufrufen
+                kategorieRepository.syncKategorienMitFirestore() // Aufruf auf Deutsch
                 Timber.d("SyncManager: Kategoriedaten synchronisiert.")
 
                 Timber.d("SyncManager: Voller Synchronisationsprozess abgeschlossen.")
@@ -55,10 +55,4 @@ class SyncManager @Inject constructor(
             }
         }
     }
-
-    // Zukünftige Methoden könnten hier hinzugefügt werden, z.B.
-    // - syncOnlyBenutzer()
-    // - syncOnlyArtikel()
-    // - registerNetworkObserver()
-    // - initPeriodicSync() (für WorkManager)
 }

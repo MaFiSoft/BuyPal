@@ -1,4 +1,6 @@
-// com/MaFiSoft/BuyPal/data/BenutzerDao.kt
+// app/src/main/java/com/MaFiSoft/BuyPal/data/BenutzerDao.kt
+// Stand: 2025-06-02_01:25:00
+
 package com.MaFiSoft.BuyPal.data
 
 import androidx.room.Dao
@@ -21,19 +23,15 @@ interface BenutzerDao {
     @Update
     suspend fun benutzerAktualisieren(benutzer: BenutzerEntitaet)
 
-    // Hole Benutzer ueber die Firebase Auth ID (Firestore-ID)
-    @Query("SELECT * FROM benutzer WHERE benutzerId = :benutzerFirestoreId")
-    fun getBenutzerByFirestoreId(benutzerFirestoreId: String): Flow<BenutzerEntitaet?>
+    // Hole Benutzer ueber die eindeutige ID (die jetzt Room-Primärschlüssel und Firestore-ID ist)
+    @Query("SELECT * FROM benutzer WHERE benutzerId = :benutzerId")
+    fun getBenutzerById(benutzerId: String): Flow<BenutzerEntitaet?>
 
-    // Hole Benutzer ueber die interne Room ID
-    @Query("SELECT * FROM benutzer WHERE benutzerRoomId = :benutzerRoomId")
-    fun getBenutzerByRoomId(benutzerRoomId: Int): Flow<BenutzerEntitaet?>
-
-    // Holt den aktuell angemeldeten Benutzer (Room-ID 1 ist oft der erste Benutzer, aber besser über Firebase UID)
-    @Query("SELECT * FROM benutzer LIMIT 1") // Diese Query kann ueberdacht werden, wenn mehrere Benutzer moeglich sind
+    // Hole den aktuell angemeldeten Benutzer (LIMIT 1 ist eine Annahme)
+    // Diese Query kann ueberdacht werden, wenn mehrere Benutzer moeglich sind
+    @Query("SELECT * FROM benutzer LIMIT 1")
     fun getAktuellerBenutzerFromRoom(): Flow<BenutzerEntitaet?>
 
-    // --- ANPASSUNG HIER ---
     // Holt alle Benutzer, die NICHT zur Loeschung vorgemerkt sind
     @Query("SELECT * FROM benutzer WHERE istLoeschungVorgemerkt = 0")
     fun getAllBenutzer(): Flow<List<BenutzerEntitaet>>
@@ -41,7 +39,6 @@ interface BenutzerDao {
     // Hole ALLE Benutzer, auch die zur Loeschung vorgemerkten (fuer interne Sync-Logik noetig)
     @Query("SELECT * FROM benutzer")
     suspend fun getAllBenutzerIncludingMarkedForDeletion(): List<BenutzerEntitaet>
-    // --- ENDE ANPASSUNG ---
 
     // Methoden zum Abrufen von unsynchronisierten Daten
     @Query("SELECT * FROM benutzer WHERE istLokalGeaendert = 1")
@@ -50,7 +47,7 @@ interface BenutzerDao {
     @Query("SELECT * FROM benutzer WHERE istLoeschungVorgemerkt = 1")
     suspend fun getBenutzerFuerLoeschung(): List<BenutzerEntitaet>
 
-    // Loesche Benutzer nach Room-ID
-    @Query("DELETE FROM benutzer WHERE benutzerRoomId = :benutzerRoomId")
-    suspend fun deleteBenutzerByRoomId(benutzerRoomId: Int)
+    // Loesche Benutzer nach der eindeutigen ID
+    @Query("DELETE FROM benutzer WHERE benutzerId = :benutzerId")
+    suspend fun deleteBenutzerById(benutzerId: String)
 }

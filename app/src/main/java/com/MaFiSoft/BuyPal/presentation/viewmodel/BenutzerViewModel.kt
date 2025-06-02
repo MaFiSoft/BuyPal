@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/presentation/viewmodel/BenutzerViewModel.kt
-// Stand: 2025-05-29_17:00 (Angepasst von Gemini)
+// Stand: 2025-06-02_02:00:00 (KORRIGIERT: Keine direkten Sync-Aufrufe nach CUD-Operationen, deutsche Namen)
 
 package com.MaFiSoft.BuyPal.presentation.viewmodel
 
@@ -23,11 +23,11 @@ class BenutzerViewModel @Inject constructor(
 ) : ViewModel() {
 
     // Exponiert den aktuellen Benutzer als Flow aus dem Repository
-    val aktuellerBenutzer: Flow<BenutzerEntitaet?> = benutzerRepository.getAktuellerBenutzer()
+    val aktuellerBenutzer: Flow<BenutzerEntitaet?> = benutzerRepository.getAktuellerBenutzerFromRoom()
 
-    // NEU: Exponiert ALLE Benutzer als StateFlow für die UI
+    // Exponiert ALLE Benutzer als StateFlow für die UI
     val alleBenutzer: StateFlow<List<BenutzerEntitaet>> =
-        benutzerRepository.getAllBenutzerFlow() // Ruft die neue Methode vom Repository auf
+        benutzerRepository.getAllBenutzer()
             .map { it.sortedBy { benutzer -> benutzer.benutzername } } // Optional: Sortierung
             .stateIn(
                 scope = viewModelScope,
@@ -36,27 +36,28 @@ class BenutzerViewModel @Inject constructor(
             )
 
     // Funktion zum Speichern/Aktualisieren eines Benutzers
-    fun benutzerSpeichern(benutzer: BenutzerEntitaet) {
+    // WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
+    fun benutzerSpeichern(benutzer: BenutzerEntitaet) { // Name der ViewModel-Methode ist deutsch
         viewModelScope.launch {
-            benutzerRepository.benutzerSpeichern(benutzer)
+            benutzerRepository.benutzerSpeichern(benutzer) // Name der Repository-Methode ist deutsch
             Timber.d("Benutzer zur Speicherung/Aktualisierung angefordert über ViewModel: ${benutzer.benutzername}")
-            // Trigger Sync könnte hier oder in einem zentralen SyncManager erfolgen
         }
     }
 
-    // Funktion zum Löschen eines Benutzers
-    fun benutzerLoeschen(benutzer: BenutzerEntitaet) {
+    // Funktion zum Löschen eines Benutzers (soft delete: nur vormerken)
+    // WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
+    fun benutzerZurLoeschungVormerken(benutzer: BenutzerEntitaet) { // Name der ViewModel-Methode ist deutsch und beschreibend
         viewModelScope.launch {
-            benutzerRepository.loescheBenutzer(benutzer)
-            Timber.d("Benutzer zur Loeschung angefordert über ViewModel: ${benutzer.benutzername}")
-            // Trigger Sync könnte hier oder in einem zentralen SyncManager erfolgen
+            benutzerRepository.markBenutzerForDeletion(benutzer) // Name der Repository-Methode ist deutsch
+            Timber.d("Benutzer zur Loeschung vorgemerkt über ViewModel: ${benutzer.benutzername}")
         }
     }
 
     // Funktion zum manuellen Auslösen der Synchronisation
-    fun syncBenutzerDaten() {
+    fun syncBenutzerDaten() { // Name der ViewModel-Methode ist deutsch
         viewModelScope.launch {
-            benutzerRepository.syncBenutzerMitFirestore()
+            benutzerRepository.syncBenutzerDaten() // Name der Repository-Methode ist deutsch
+            Timber.d("BenutzerViewModel: Benutzer-Synchronisation ausgelöst.")
         }
     }
 }

@@ -1,5 +1,5 @@
-// com/MaFiSoft/BuyPal/repository/BenutzerRepository.kt
-// Stand: 2025-05-29_17:00 (Angepasst von Gemini)
+// app/src/main/java/com/MaFiSoft/BuyPal/repository/BenutzerRepository.kt
+// Stand: 2025-06-02_02:00:00 (KORRIGIERT: Methodennamen auf Deutsch angepasst)
 
 package com.MaFiSoft.BuyPal.repository
 
@@ -12,13 +12,14 @@ import kotlinx.coroutines.flow.Flow
  * Angepasst fuer Room-first-Strategie.
  */
 interface BenutzerRepository {
-    // Hole einen einzelnen Benutzer (z.B. den aktuell angemeldeten)
-    fun getAktuellerBenutzer(): Flow<BenutzerEntitaet?>
-    // NEU: Hole alle Benutzer als Flow
-    fun getAllBenutzerFlow(): Flow<List<BenutzerEntitaet>> // Diese Methode fehlt aktuell
+    // Methoden zum Speichern, Aktualisieren, Löschen (Room-first, setzt Sync-Flags)
+    suspend fun benutzerSpeichern(benutzer: BenutzerEntitaet) // Speichert/Aktualisiert in Room und markiert für Sync
+    fun getBenutzerById(benutzerId: String): Flow<BenutzerEntitaet?>
+    fun getAktuellerBenutzerFromRoom(): Flow<BenutzerEntitaet?>
+    fun getAllBenutzer(): Flow<List<BenutzerEntitaet>>
+    suspend fun markBenutzerForDeletion(benutzer: BenutzerEntitaet) // Setzt Löschungs-Flag und markiert für Sync (Soft Delete)
+    suspend fun loescheBenutzer(benutzer: BenutzerEntitaet) // Für endgültige Löschung (typischerweise nur vom SyncManager aufgerufen)
 
-    suspend fun benutzerSpeichern(benutzer: BenutzerEntitaet) // Speichert/Aktualisiert in Room und markiert fuer Sync
-    suspend fun benutzerAktualisieren(benutzer: BenutzerEntitaet) // Aktualisiert in Room und markiert fuer Sync
-    suspend fun syncBenutzerMitFirestore() // Methode zur manuellen/getriggerten Synchronisation
-    suspend fun loescheBenutzer(benutzer: BenutzerEntitaet) // Setzt Loeschungs-Flag und markiert fuer Sync
+    // Synchronisations-Logik
+    suspend fun syncBenutzerDaten()
 }

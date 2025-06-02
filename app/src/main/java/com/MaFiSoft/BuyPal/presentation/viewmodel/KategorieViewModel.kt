@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/presentation/viewmodel/KategorieViewModel.kt
-// Stand: 2025-05-29 (Neu erstellt nach Goldstandard)
+// Stand: 2025-06-02_02:00:00 (KORRIGIERT: Keine direkten Sync-Aufrufe nach CUD-Operationen)
 
 package com.MaFiSoft.BuyPal.presentation.viewmodel
 
@@ -44,13 +44,13 @@ class KategorieViewModel @Inject constructor(
 
     /**
      * Speichert eine neue Kategorie lokal in Room.
-     * Der SyncManager ist später für das Hochladen zu Firestore zuständig.
+     * WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
      */
     fun kategorieSpeichern(kategorie: KategorieEntitaet) {
         Timber.d("KategorieViewModel: Versuche Kategorie zu speichern: ${kategorie.name}")
         viewModelScope.launch {
             try {
-                kategorieRepository.saveKategorieLocal(kategorie)
+                kategorieRepository.kategorieSpeichern(kategorie)
                 Timber.d("KategorieViewModel: Kategorie ${kategorie.name} lokal gespeichert.")
             } catch (e: Exception) {
                 Timber.e(e, "KategorieViewModel: Fehler beim lokalen Speichern der Kategorie: ${e.message}")
@@ -60,15 +60,14 @@ class KategorieViewModel @Inject constructor(
 
     /**
      * Aktualisiert eine bestehende Kategorie lokal in Room.
-     * Der SyncManager ist später für das Hochladen zu Firestore zuständig.
+     * WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
      */
     fun kategorieAktualisieren(kategorie: KategorieEntitaet) {
         Timber.d("KategorieViewModel: Versuche Kategorie zu aktualisieren: ${kategorie.name}")
         viewModelScope.launch {
             try {
-                kategorieRepository.updateKategorieLocal(kategorie)
+                kategorieRepository.kategorieAktualisieren(kategorie)
                 Timber.d("KategorieViewModel: Kategorie ${kategorie.name} lokal aktualisiert.")
-                // Optional: Hier könnte eine Statusmeldung an die UI gesendet werden
             } catch (e: Exception) {
                 Timber.e(e, "KategorieViewModel: Fehler beim lokalen Aktualisieren der Kategorie: ${e.message}")
             }
@@ -76,19 +75,27 @@ class KategorieViewModel @Inject constructor(
     }
 
     /**
-     * Löscht eine Kategorie lokal in Room.
-     * Der SyncManager ist später für das Löschen in Firestore zuständig.
+     * Löscht eine Kategorie lokal in Room (soft delete: nur vormerken).
+     * WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
      */
-    fun kategorieLoeschen(kategorieId: String) {
-        Timber.d("KategorieViewModel: Versuche Kategorie mit ID $kategorieId zu löschen.")
+    fun kategorieZurLoeschungVormerken(kategorie: KategorieEntitaet) { // Name der ViewModel-Methode ist deutsch und beschreibend
+        Timber.d("KategorieViewModel: Versuche Kategorie ${kategorie.name} zur Löschung vorzumerken.")
         viewModelScope.launch {
             try {
-                kategorieRepository.deleteKategorieLocal(kategorieId)
-                Timber.d("KategorieViewModel: Kategorie mit ID $kategorieId lokal gelöscht.")
-                // Optional: Hier könnte eine Statusmeldung an die UI gesendet werden
+                kategorieRepository.kategorieLoeschen(kategorie) // Diese Methode markiert die Kategorie zur Löschung im Repo
+                Timber.d("KategorieViewModel: Kategorie ${kategorie.name} lokal zur Löschung vorgemerkt.")
             } catch (e: Exception) {
-                Timber.e(e, "KategorieViewModel: Fehler beim lokalen Löschen der Kategorie: ${e.message}")
+                Timber.e(e, "KategorieViewModel: Fehler beim lokalen Vormerken der Kategorie zur Löschung: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * Funktion zum manuellen Auslösen der Synchronisation für Kategorien.
+     */
+    fun syncKategorienDaten() { // Name der ViewModel-Methode ist deutsch
+        viewModelScope.launch {
+            kategorieRepository.syncKategorienMitFirestore() // Name der Repository-Methode ist deutsch
         }
     }
 }

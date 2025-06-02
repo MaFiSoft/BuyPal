@@ -1,4 +1,6 @@
-// com/MaFiSoft/BuyPal/data/Converters.kt
+// app/src/main/java/com/MaFiSoft/BuyPal/data/Converters.kt
+// Stand: 2025-06-02_23:18:00 (BESTÄTIGT)
+
 package com.MaFiSoft.BuyPal.data
 
 import androidx.room.TypeConverter

@@ -1,279 +1,161 @@
-// com/MaFiSoft/BuyPal/repository/impl/BenutzerRepositoryImpl.kt
-// Stand: 2025-05-29_17:00 (Angepasst von Gemini)
+// app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/BenutzerRepositoryImpl.kt
+// Stand: 2025-06-02_02:00:00 (KORRIGIERT: Keine direkten Sync-Aufrufe nach CUD-Operationen)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
 import com.MaFiSoft.BuyPal.data.BenutzerDao
 import com.MaFiSoft.BuyPal.data.BenutzerEntitaet
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import timber.log.Timber
 import java.util.Date
-
-// NEUE IMPORTE für callbackFlow
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.callbackFlow
-import javax.inject.Inject // Hinzufügen für Hilt
-import javax.inject.Singleton // Hinzufügen für Hilt
+import javax.inject.Inject
+import timber.log.Timber // Import für Timber Logging
 
 /**
- * Implementierung des Benutzer-Repository.
- * Verwaltet Benutzerdaten lokal (Room) und synchronisiert diese verzögert mit Firestore.
+ * Implementierung von [BenutzerRepository] für die Verwaltung von Benutzerdaten.
+ * Implementiert die Room-first-Strategie mit Delayed Sync.
  */
-@Singleton // Hilt Annotation
-class BenutzerRepositoryImpl @Inject constructor( // Hilt Injektion
+class BenutzerRepositoryImpl @Inject constructor(
     private val benutzerDao: BenutzerDao,
-    private val firestore: FirebaseFirestore,
-    private val firebaseAuth: FirebaseAuth
+    private val firestore: FirebaseFirestore
 ) : BenutzerRepository {
 
-    private val ioScope = CoroutineScope(Dispatchers.IO)
     private val firestoreCollection = firestore.collection("benutzer")
 
-    // Init-Block: Stellt sicher, dass der aktuell angemeldete Benutzer (falls vorhanden) in Room ist.
-    // Dies ist ein initialer Pull-Sync, kein Echtzeit-Listener.
-    init {
-        ioScope.launch {
-            try {
-                val currentUser = firebaseAuth.currentUser
-                if (currentUser != null) {
-                    val firebaseUid = currentUser.uid
-                    val firestoreBenutzerDoc = firestoreCollection.document(firebaseUid).get().await()
-                    val firestoreBenutzer = firestoreBenutzerDoc.toObject(BenutzerEntitaet::class.java)
+    // --- Lokale Datenbank-Operationen (Room) ---
 
-                    if (firestoreBenutzer != null) {
-                        // Prüfen, ob der Benutzer in Room existiert und ob Firestore aktueller ist
-                        val existingBenutzerInRoom = benutzerDao.getBenutzerByFirestoreId(firebaseUid).firstOrNull()
-
-                        if (existingBenutzerInRoom == null ||
-                            (firestoreBenutzer.zuletztGeaendert != null && existingBenutzerInRoom.zuletztGeaendert != null &&
-                                    firestoreBenutzer.zuletztGeaendert.after(existingBenutzerInRoom.zuletztGeaendert))) {
-                            // Wenn nicht vorhanden oder Firestore aktueller ist, aus Firestore in Room speichern
-                            val benutzerToSave = firestoreBenutzer.copy(
-                                benutzerRoomId = existingBenutzerInRoom?.benutzerRoomId ?: 0, // Behalte Room-ID, falls vorhanden
-                                istLokalGeaendert = false, // Ist jetzt synchronisiert
-                                istLoeschungVorgemerkt = false // Ist jetzt synchronisiert
-                            )
-                            benutzerDao.benutzerEinfuegen(benutzerToSave)
-                            Timber.d("Benutzer aus Firestore in Room initial synchronisiert/aktualisiert: ${benutzerToSave.benutzername}")
-                        } else {
-                            Timber.d("Lokaler Benutzer ist aktueller oder gleichwertig, keine initiale Synchronisation von Firestore nötig.")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Timber.e(e, "Fehler beim initialen Synchronisieren des Benutzers von Firestore: ${e.message}")
-            }
-        }
+    // WICHTIG: Kein Sync-Aufruf hier! Nur lokale Operation und Markierung.
+    override suspend fun benutzerSpeichern(benutzer: BenutzerEntitaet) { // Name der Methode ist jetzt deutsch: benutzerSpeichern
+        Timber.d("BenutzerRepositoryImpl: Versuche Benutzer lokal zu speichern/aktualisieren: ${benutzer.benutzername}")
+        val benutzerMitTimestamp = benutzer.copy(
+            zuletztGeaendert = Date(),
+            istLokalGeaendert = true // Markieren für späteren Sync
+        )
+        benutzerDao.benutzerEinfuegen(benutzerMitTimestamp)
+        Timber.d("BenutzerRepositoryImpl: Benutzer lokal gespeichert/aktualisiert: ${benutzerMitTimestamp.benutzername}")
     }
 
-    override fun getAktuellerBenutzer(): Flow<BenutzerEntitaet?> {
-        return callbackFlow {
-            val authStateListener = FirebaseAuth.AuthStateListener { auth ->
-                ioScope.launch {
-                    val firebaseUser = auth.currentUser
-                    if (firebaseUser != null) {
-                        val benutzer = benutzerDao.getBenutzerByFirestoreId(firebaseUser.uid).firstOrNull()
-                        send(benutzer)
-                    } else {
-                        send(null)
-                    }
-                }
-            }
-
-            firebaseAuth.addAuthStateListener(authStateListener)
-            awaitClose {
-                firebaseAuth.removeAuthStateListener(authStateListener)
-            }
-        }
+    override fun getBenutzerById(benutzerId: String): Flow<BenutzerEntitaet?> {
+        Timber.d("BenutzerRepositoryImpl: Abrufen Benutzer nach ID: $benutzerId")
+        return benutzerDao.getBenutzerById(benutzerId)
     }
 
-    override fun getAllBenutzerFlow(): Flow<List<BenutzerEntitaet>> {
-        Timber.d("BenutzerRepositoryImpl: Lade alle NICHT zur Loeschung vorgemerkten Benutzer aus Room.")
-        // Diese Methode nutzt jetzt die angepasste Query in BenutzerDao, die gelöschte Elemente filtert.
+    override fun getAktuellerBenutzerFromRoom(): Flow<BenutzerEntitaet?> {
+        Timber.d("BenutzerRepositoryImpl: Abrufen des aktuellen Benutzers aus Room.")
+        return benutzerDao.getAktuellerBenutzerFromRoom()
+    }
+
+    override fun getAllBenutzer(): Flow<List<BenutzerEntitaet>> {
+        Timber.d("BenutzerRepositoryImpl: Abrufen aller Benutzer (nicht zur Löschung vorgemerkt).")
         return benutzerDao.getAllBenutzer()
     }
 
-
-    override suspend fun benutzerSpeichern(benutzer: BenutzerEntitaet) {
-        val benutzerToSave = benutzer.copy(
+    // WICHTIG: Kein Sync-Aufruf hier! Nur lokale Operation und Markierung.
+    override suspend fun markBenutzerForDeletion(benutzer: BenutzerEntitaet) {
+        Timber.d("BenutzerRepositoryImpl: Markiere Benutzer zur Löschung: ${benutzer.benutzername}")
+        val benutzerLoeschenVorgemerkt = benutzer.copy(
+            istLoeschungVorgemerkt = true,
             zuletztGeaendert = Date(),
-            istLokalGeaendert = true,
-            istLoeschungVorgemerkt = false // Sicherstellen, dass dieses Flag beim Speichern/Aktualisieren false ist
+            istLokalGeaendert = true // Auch eine Löschung ist eine lokale Änderung, die gesynct werden muss
         )
-        benutzerDao.benutzerEinfuegen(benutzerToSave)
-        Timber.d("Benutzer lokal in Room gespeichert/aktualisiert und fuer Sync markiert: ${benutzerToSave.benutzername} (RoomID: ${benutzerToSave.benutzerRoomId})")
+        benutzerDao.benutzerAktualisieren(benutzerLoeschenVorgemerkt)
+        Timber.d("BenutzerRepositoryImpl: Benutzer zur Löschung vorgemerkt: ${benutzerLoeschenVorgemerkt.benutzername}")
     }
 
-    override suspend fun benutzerAktualisieren(benutzer: BenutzerEntitaet) {
-        // Die Logik ist die gleiche wie beim Speichern, da es ein UPSERT ist.
-        benutzerSpeichern(benutzer)
-        Timber.d("Benutzer lokal in Room aktualisiert und fuer Sync markiert: ${benutzer.benutzername} (RoomID: ${benutzer.benutzerRoomId})")
+    // WICHTIG: Kein Sync-Aufruf hier! Dies ist eine "Hard-Delete" Methode, die normalerweise nur im Sync-Prozess oder für Bereinigung verwendet wird.
+    // Wenn diese direkt von der UI aufgerufen wird, würde sie sofort löschen ohne Delayed Sync.
+    override suspend fun loescheBenutzer(benutzer: BenutzerEntitaet) { // Name der Methode ist jetzt deutsch: loescheBenutzer
+        Timber.d("BenutzerRepositoryImpl: Benutzer endgültig löschen (sowohl lokal als auch aus Firestore): ${benutzer.benutzername}")
+        try {
+            // Erst aus Firestore löschen
+            firestoreCollection.document(benutzer.benutzerId).delete().await()
+            // Dann lokal löschen
+            benutzerDao.deleteBenutzerById(benutzer.benutzerId)
+            Timber.d("BenutzerRepositoryImpl: Benutzer ${benutzer.benutzername} erfolgreich lokal und aus Firestore gelöscht.")
+        } catch (e: Exception) {
+            Timber.e(e, "BenutzerRepositoryImpl: Fehler beim endgültigen Löschen von Benutzer ${benutzer.benutzername}.")
+        }
     }
 
-    override suspend fun loescheBenutzer(benutzer: BenutzerEntitaet) {
-        val benutzerToMarkForDeletion = benutzer.copy(
-            istLokalGeaendert = true, // Diese Änderung muss synchronisiert werden
-            istLoeschungVorgemerkt = true, // Das Tombstone-Flag
-            zuletztGeaendert = Date() // Aktualisiere den Zeitstempel für die Löschung
-        )
-        benutzerDao.benutzerAktualisieren(benutzerToMarkForDeletion) // Update in Room
-        Timber.d("Benutzer lokal markiert fuer Loeschung und Sync: ${benutzer.benutzername} (RoomID: ${benutzer.benutzerRoomId})")
-    }
 
-    override suspend fun syncBenutzerMitFirestore() {
-        // Verwende den ioScope, da dies Netzwerk- und Datenbankoperationen sind
-        ioScope.launch {
-            Timber.d("Starte vollen Benutzer-Synchronisationsprozess mit Firestore.")
+    // --- Synchronisations-Operationen (Room <-> Firestore) ---
+
+    // Dies ist die einzige Methode, die den Sync initiiert
+    override suspend fun syncBenutzerDaten() { // Name der Methode ist jetzt deutsch: syncBenutzerDaten
+        Timber.d("BenutzerRepositoryImpl: Starte Synchronisation der Benutzerdaten.")
+
+        // 1. Lokale Änderungen zu Firestore hochladen
+        val unsynchronisierteBenutzer = benutzerDao.getUnsynchronisierteBenutzer()
+        for (benutzer in unsynchronisierteBenutzer) {
             try {
-                // --- Schritt 1: Lokale Löschungen zu Firestore pushen ---
-                val benutzerFuerLoeschung = benutzerDao.getBenutzerFuerLoeschung()
-                for (benutzer in benutzerFuerLoeschung) {
-                    if (benutzer.benutzerId != null) {
-                        firestoreCollection.document(benutzer.benutzerId).delete().await()
-                        benutzerDao.deleteBenutzerByRoomId(benutzer.benutzerRoomId) // Erst nach erfolgreicher Firestore-Löschung lokal löschen
-                        Timber.d("Benutzer aus Firestore geloescht und lokal entfernt: ${benutzer.benutzerId}")
-                    } else {
-                        // Benutzer ohne Firebase-ID existiert nur lokal und wurde zur Löschung vorgemerkt.
-                        // Kann direkt lokal gelöscht werden, da keine Cloud-Ressource existiert.
-                        benutzerDao.deleteBenutzerByRoomId(benutzer.benutzerRoomId)
-                        Timber.d("Benutzer ohne Firestore-ID nur lokal geloescht: (RoomID: ${benutzer.benutzerRoomId})")
-                    }
-                }
-
-                // --- Schritt 2: Lokale Hinzufügungen/Änderungen zu Firestore pushen ---
-                val unsyncedBenutzer = benutzerDao.getUnsynchronisierteBenutzer()
-                // com/MaFiSoft/BuyPal/repository/impl/BenutzerRepositoryImpl.kt
-
-// ... (vorheriger Code) ...
-
-                for (benutzer in unsyncedBenutzer) {
-                    // Wichtig: !benutzer.istLoeschungVorgemerkt muss hier auch stehen, da wir keine zur Loeschung vorgemerkten Benutzer pushen wollen
-                    if (!benutzer.istLoeschungVorgemerkt) {
-                        if (benutzer.benutzerId != null) {
-                            // --- ANPASSUNG HIER ---
-                            // Erstelle eine KOPIE des Benutzerobjekts, bei der die lokalen Sync-Flags auf FALSE gesetzt sind.
-                            // DIESE KOPIE wird an Firestore gesendet.
-                            val benutzerFuerFirestore = benutzer.copy(
-                                istLokalGeaendert = false, // Dies wird nun in Firestore als FALSE gespeichert
-                                istLoeschungVorgemerkt = false // Dies wird nun in Firestore als FALSE gespeichert
-                            )
-                            firestoreCollection.document(benutzer.benutzerId).set(benutzerFuerFirestore).await() // <-- HIER IST DIE ÄNDERUNG
-
-                            // Danach aktualisiere auch den lokalen Room-Eintrag auf synchronisiert.
-                            // Der Inhalt von 'benutzerFuerFirestore' ist im Grunde derselbe,
-                            // aber wir nehmen das ursprüngliche 'benutzer' Objekt und kopieren es,
-                            // um sicherzustellen, dass wir die korrekte Room-ID beibehalten.
-                            // Alternativ könnte man auch 'benutzerFuerFirestore' direkt speichern,
-                            // aber das benutzer.copy ist robuster, falls noch andere Felder im Original-Benutzerobjekt wären
-                            // die nicht Teil des Firestroe-Benutzers sind (hier nicht der Fall, aber als Muster gut).
-                            benutzerDao.benutzerAktualisieren(benutzer.copy(
-                                istLokalGeaendert = false,
-                                istLoeschungVorgemerkt = false
-                            ))
-                            // --- ENDE ANPASSUNG ---
-                            Timber.d("Benutzer in Firestore synchronisiert (Speichern/Aktualisieren): ${benutzer.benutzerId}")
-                        } else {
-                            Timber.e("Benutzer ohne Benutzer-ID (Firebase UID) versucht zu speichern. Dies sollte nicht passieren, da die Benutzer-ID von Firebase Auth stammt.")
-                        }
-                    }
-                }
-// ... (restlicher Code) ...
-
-                // --- Schritt 3: Daten von Firestore pullen und mit Room abgleichen ---
-                // Hole alle Dokumente von Firestore. In einer echten App würde man hier Paginierung oder inkrementelle Syncs nutzen.
-                val firestoreBenutzerDocs = firestoreCollection.get().await().documents
-                val firestoreBenutzerList = firestoreBenutzerDocs.mapNotNull { it.toObject(BenutzerEntitaet::class.java) }
-                    .filter { it.benutzerId != null } // Nur Benutzer mit gültiger Firebase ID verarbeiten
-
-                val localBenutzerMap = benutzerDao.getAllBenutzerIncludingMarkedForDeletion().associateBy { it.benutzerId }
-
-                for (firestoreBenutzer in firestoreBenutzerList) {
-                    val localBenutzer = localBenutzerMap[firestoreBenutzer.benutzerId]
-
-                    when {
-                        // Fall 1: Benutzer existiert NICHT lokal (oder wurde physisch gelöscht), aber in Firestore
-                        localBenutzer == null -> {
-                            val newBenutzerInRoom = firestoreBenutzer.copy(
-                                benutzerRoomId = 0, // Room wird eine neue ID zuweisen
-                                istLokalGeaendert = false,
-                                istLoeschungVorgemerkt = false
-                            )
-                            benutzerDao.benutzerEinfuegen(newBenutzerInRoom)
-                            Timber.d("Neuer Benutzer von Firestore in Room hinzugefuegt: ${newBenutzerInRoom.benutzername}")
-                        }
-                        // Fall 2: Benutzer existiert lokal und in Firestore
-                        localBenutzer != null -> {
-                            // Konfliktloesung: Last-Write-Wins basierend auf zuletztGeaendert
-                            val firestoreTimestamp = firestoreBenutzer.zuletztGeaendert
-                            val localTimestamp = localBenutzer.zuletztGeaendert
-
-                            if (firestoreTimestamp != null && localTimestamp != null) {
-                                if (firestoreTimestamp.after(localTimestamp) && localBenutzer.istLokalGeaendert == false) {
-                                    // Firestore ist neuer und lokale Version ist nicht lokal geändert
-                                    val updatedBenutzer = firestoreBenutzer.copy(
-                                        benutzerRoomId = localBenutzer.benutzerRoomId, // Behalte die Room ID
-                                        istLokalGeaendert = false, // Ist jetzt synchronisiert
-                                        istLoeschungVorgemerkt = false // Ist jetzt synchronisiert
-                                    )
-                                    benutzerDao.benutzerAktualisieren(updatedBenutzer)
-                                    Timber.d("Benutzer von Firestore in Room aktualisiert (Firestore neuer): ${updatedBenutzer.benutzername}")
-                                } else if (localTimestamp.after(firestoreTimestamp) && localBenutzer.istLokalGeaendert == true) {
-                                    // Lokale Version ist neuer UND hat lokale Änderungen (wird beim Push gehandhabt)
-                                    // Hier tun wir nichts, da die lokale Änderung im Push-Schritt behandelt wird.
-                                    Timber.d("Lokaler Benutzer ist neuer und lokal geändert, wird im Push-Schritt gehandhabt: ${localBenutzer.benutzername}")
-                                } else if (localBenutzer.istLoeschungVorgemerkt) {
-                                    // Lokaler Benutzer ist zur Löschung vorgemerkt, wurde aber in Firestore noch nicht gelöscht
-                                    // Dies sollte im Push-Schritt behoben werden. Hier tun wir nichts.
-                                    Timber.d("Lokaler Benutzer ist zur Loeschung vorgemerkt, Firestore-Version wird ignoriert: ${localBenutzer.benutzername}")
-                                }
-                                // Ansonsten: Timestamps sind gleich oder lokale Version ist älter, aber lokal geändert (wird gepusht), oder keine Änderung.
-                            } else if (firestoreTimestamp != null && localTimestamp == null) {
-                                // Firestore hat einen Timestamp, Room nicht (altes Element oder initale Sync-Problem)
-                                // Nehmen wir an, Firestore ist aktueller
-                                val updatedBenutzer = firestoreBenutzer.copy(
-                                    benutzerRoomId = localBenutzer.benutzerRoomId,
-                                    istLokalGeaendert = false,
-                                    istLoeschungVorgemerkt = false
-                                )
-                                benutzerDao.benutzerAktualisieren(updatedBenutzer)
-                                Timber.d("Benutzer von Firestore in Room aktualisiert (Timestamp-Diskrepanz): ${updatedBenutzer.benutzername}")
-                            } else if (firestoreBenutzer.istLoeschungVorgemerkt && !localBenutzer.istLoeschungVorgemerkt) {
-                                // Fall: Firebase-Version ist als gelöscht markiert, lokale nicht
-                                // Lösche den Benutzer lokal
-                                benutzerDao.deleteBenutzerByRoomId(localBenutzer.benutzerRoomId)
-                                Timber.d("Benutzer lokal geloescht, da in Firestore als geloescht markiert: ${localBenutzer.benutzername}")
-                            }
-                        }
-                    }
-                }
-
-                // --- Schritt 4: Lokale Benutzer finden, die in Firestore nicht mehr existieren und lokal NICHT zur Löschung vorgemerkt sind ---
-                // Dies ist wichtig, um Fälle zu behandeln, wo ein Benutzer auf einem ANDEREN Gerät physisch gelöscht wurde.
-                val allLocalBenutzer = benutzerDao.getAllBenutzerIncludingMarkedForDeletion()
-                val firestoreBenutzerIds = firestoreBenutzerList.map { it.benutzerId }.toSet()
-
-                for (localBenutzer in allLocalBenutzer) {
-                    if (localBenutzer.benutzerId != null && !firestoreBenutzerIds.contains(localBenutzer.benutzerId) && !localBenutzer.istLoeschungVorgemerkt) {
-                        // Benutzer existiert nicht in Firestore und ist lokal nicht zur Löschung vorgemerkt.
-                        // Das bedeutet, er wurde auf einem anderen Gerät gelöscht.
-                        benutzerDao.deleteBenutzerByRoomId(localBenutzer.benutzerRoomId)
-                        Timber.d("Benutzer lokal geloescht, da nicht mehr in Firestore vorhanden: ${localBenutzer.benutzername}")
-                    }
-                }
-
-
-                Timber.d("Vollständige Benutzer-Synchronisation mit Firestore abgeschlossen.")
+                firestoreCollection.document(benutzer.benutzerId).set(benutzer).await()
+                // Nach erfolgreichem Upload lokale Flags zurücksetzen
+                val gesyncterBenutzer = benutzer.copy(istLokalGeaendert = false)
+                benutzerDao.benutzerAktualisieren(gesyncterBenutzer)
+                Timber.d("BenutzerRepositoryImpl: Benutzer ${benutzer.benutzername} erfolgreich mit Firestore synchronisiert (Upload).")
             } catch (e: Exception) {
-                Timber.e(e, "Fehler bei der Benutzer-Synchronisation mit Firestore: ${e.message}")
+                Timber.e(e, "BenutzerRepositoryImpl: Fehler beim Hochladen von Benutzer ${benutzer.benutzername} zu Firestore.")
+                // Fehlerbehandlung: Benutzer bleibt als lokal geändert markiert, wird später erneut versucht
             }
+        }
+
+        // 2. Zur Löschung vorgemerkte Benutzer aus Firestore löschen und lokal entfernen
+        val benutzerFuerLoeschung = benutzerDao.getBenutzerFuerLoeschung()
+        for (benutzer in benutzerFuerLoeschung) {
+            try {
+                firestoreCollection.document(benutzer.benutzerId).delete().await()
+                benutzerDao.deleteBenutzerById(benutzer.benutzerId)
+                Timber.d("BenutzerRepositoryImpl: Benutzer ${benutzer.benutzername} erfolgreich aus Firestore und lokal gelöscht.")
+            } catch (e: Exception) {
+                Timber.e(e, "BenutzerRepositoryImpl: Fehler beim Löschen von Benutzer ${benutzer.benutzername} aus Firestore.")
+                // Fehlerbehandlung: Benutzer bleibt zur Löschung vorgemerkt
+            }
+        }
+
+        // 3. Firestore-Daten herunterladen und lokale Datenbank aktualisieren (Last-Write-Wins)
+        try {
+            val firestoreSnapshot = firestoreCollection.get().await()
+            val firestoreBenutzerList = firestoreSnapshot.toObjects(BenutzerEntitaet::class.java)
+
+            for (firestoreBenutzer in firestoreBenutzerList) {
+                val lokalerBenutzer = benutzerDao.getBenutzerById(firestoreBenutzer.benutzerId).firstOrNull()
+
+                if (lokalerBenutzer == null) {
+                    // Benutzer existiert nur in Firestore, lokal einfügen
+                    benutzerDao.benutzerEinfuegen(firestoreBenutzer.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                    Timber.d("BenutzerRepositoryImpl: Neuer Benutzer ${firestoreBenutzer.benutzername} von Firestore lokal hinzugefügt.")
+                } else {
+                    // Benutzer existiert in beiden, Last-Write-Wins anwenden
+                    if (firestoreBenutzer.zuletztGeaendert != null && lokalerBenutzer.zuletztGeaendert != null &&
+                        firestoreBenutzer.zuletztGeaendert.after(lokalerBenutzer.zuletztGeaendert) &&
+                        !lokalerBenutzer.istLokalGeaendert) {
+                        // Firestore ist neuer und lokale Version ist nicht lokal geändert
+                        benutzerDao.benutzerAktualisieren(firestoreBenutzer.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                        Timber.d("BenutzerRepositoryImpl: Benutzer ${firestoreBenutzer.benutzername} von Firestore aktualisiert (Last-Write-Wins).")
+                    } else if (lokalerBenutzer.istLokalGeaendert) {
+                        // Lokale Version ist neuer oder lokal geändert, überspringe das Herunterladen
+                        Timber.d("BenutzerRepositoryImpl: Benutzer ${lokalerBenutzer.benutzername} lokal geändert, Firestore-Version ignoriert.")
+                        // Option: hier könnte man auch die lokale Version erneut hochladen, um Konflikte zu lösen
+                    }
+                    // TODO: Fall behandeln, wenn beide lokal geändert wurden oder bei Gleichstand
+                }
+            }
+            // 4. Lokale Benutzer finden, die in Firestore nicht mehr existieren und lokal NICHT zur Löschung vorgemerkt sind
+            val allLocalBenutzer = benutzerDao.getAllBenutzerIncludingMarkedForDeletion()
+            val firestoreBenutzerIds = firestoreBenutzerList.map { it.benutzerId }.toSet()
+
+            for (localBenutzer in allLocalBenutzer) {
+                if (localBenutzer.benutzerId.isNotEmpty() && !firestoreBenutzerIds.contains(localBenutzer.benutzerId) && !localBenutzer.istLoeschungVorgemerkt) {
+                    benutzerDao.deleteBenutzerById(localBenutzer.benutzerId)
+                    Timber.d("Benutzer lokal geloescht, da nicht mehr in Firestore vorhanden: ${localBenutzer.benutzername}")
+                }
+            }
+            Timber.d("BenutzerRepositoryImpl: Synchronisation der Benutzerdaten abgeschlossen.")
+        } catch (e: Exception) {
+            Timber.e(e, "BenutzerRepositoryImpl: Fehler beim Herunterladen und Synchronisieren von Benutzern von Firestore.")
         }
     }
 }
