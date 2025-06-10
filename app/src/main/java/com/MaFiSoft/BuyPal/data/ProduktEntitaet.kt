@@ -1,5 +1,6 @@
-// com/MaFiSoft/BuyPal/data/ProduktEntitaet.kt
-// Stand: 2025-06-02_21:36:15
+// app/src/main/java/com/MaFiSoft/BuyPal/data/ProduktEntitaet.kt
+// Stand: 2025-06-04_11:15:00, Codezeilen: 36
+
 package com.MaFiSoft.BuyPal.data
 
 import androidx.room.Entity
@@ -8,46 +9,31 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
+import com.google.firebase.firestore.Exclude // Import für @Exclude
 import java.util.Date
 
-/**
- * Entitaet fuer ein Produkt.
- * Dient als Datenmodell fuer Room (lokale DB) und Firestore (Cloud DB).
- *
- * @param produktId Eindeutige ID des Produkts.
- * @param name Name des Produkts (z.B. "Salami").
- * @param beschreibung Eine detailliertere Beschreibung des Produkts (optional).
- * @param kategorieId ID der Kategorie, zu der das Produkt gehoert.
- * @param erstellungszeitpunkt Zeitstempel der Erstellung.
- * @param zuletztGeaendert Zeitstempel der letzten Bearbeitung (für Sync-Logik).
- * @param istLokalGeaendert Flag, das anzeigt, ob der Datensatz lokale (unsynchronisierte) Aenderungen hat.
- * @param istLoeschungVorgemerkt Flag, das anzeigt, ob der Datensatz lokal geloescht wurde, aber noch in Firestore geloescht werden muss.
- */
 @Entity(
-    tableName = "produkte",
+    tableName = "produkt",
     foreignKeys = [
         ForeignKey(
             entity = KategorieEntitaet::class,
             parentColumns = ["kategorieId"],
             childColumns = ["kategorieId"],
-            onDelete = ForeignKey.RESTRICT // Eine Kategorie darf nicht gelöscht werden, wenn noch Produkte ihr zugeordnet sind
+            onDelete = ForeignKey.RESTRICT // Löschen einer Kategorie, die noch verwendet wird, verhindern
         )
     ],
-    indices = [
-        Index(value = ["kategorieId"]) // Index für schnelle Abfragen nach kategorieId
-    ]
+    indices = [Index(value = ["kategorieId"])]
 )
 data class ProduktEntitaet(
-    @PrimaryKey
-    @DocumentId
-    val produktId: String = "",
-    val name: String = "",
+    @PrimaryKey @DocumentId val produktId: String,
+    val name: String,
     val beschreibung: String? = null,
-    val kategorieId: String = "", // Fremdschlüssel zu KategorieEntitaet
+    val kategorieId: String? = null,
     @ServerTimestamp
     val erstellungszeitpunkt: Date? = null,
-    // NEUE FELDER FÜR SYNC-LOGIK (entsprechend Goldstandard)
     val zuletztGeaendert: Date? = null,
+    @get:Exclude // KORRIGIERT: Nur @Exclude verwenden
     val istLokalGeaendert: Boolean = false,
+    @get:Exclude // KORRIGIERT: Nur @Exclude verwenden
     val istLoeschungVorgemerkt: Boolean = false
 )

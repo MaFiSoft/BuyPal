@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/GruppeDao.kt
-// Stand: 2025-06-02_22:15:00
+// Stand: 2025-06-10_20:04:00, Codezeilen: 50
 
 package com.MaFiSoft.BuyPal.data
 
@@ -12,7 +12,8 @@ import kotlinx.coroutines.flow.Flow
 
 /**
  * Data Access Object (DAO) fuer die GruppeEntitaet.
- * Angepasst an den Goldstandard von BenutzerDao und ArtikelDao.
+ * Definiert Methoden fuer den Zugriff auf Gruppen-Daten in der Room-Datenbank.
+ * Angepasst an den Goldstandard von BenutzerDao.
  */
 @Dao
 interface GruppeDao {
@@ -22,27 +23,29 @@ interface GruppeDao {
     @Update
     suspend fun gruppeAktualisieren(gruppe: GruppeEntitaet)
 
-    @Query("SELECT * FROM gruppen WHERE gruppenId = :gruppenId")
-    fun getGruppeById(gruppenId: String): Flow<GruppeEntitaet?>
+    @Query("SELECT * FROM gruppe WHERE gruppeId = :gruppeId")
+    fun getGruppeById(gruppeId: String): Flow<GruppeEntitaet?>
 
-    // KORRIGIERT: Abfrage, um direkt alle NICHT zur Löschung vorgemerkten Gruppen zu holen.
-    // Die Filterung nach 'mitgliederIds' muss dann im Repository/ViewModel erfolgen.
-    @Query("SELECT * FROM gruppen WHERE istLoeschungVorgemerkt = 0 ORDER BY name ASC")
-    fun getAllAktiveGruppen(): Flow<List<GruppeEntitaet>> // Umbenannt, um Klarheit zu schaffen
+    // Holt alle aktiven Gruppen (nicht zur Loeschung vorgemerkt)
+    @Query("SELECT * FROM gruppe WHERE istLoeschungVorgemerkt = 0 ORDER BY name ASC")
+    fun getAllGruppen(): Flow<List<GruppeEntitaet>>
 
-    // NEU: Holt ALLE Gruppen, auch die zur Löschung vorgemerkten (für interne Sync-Logik benötigt)
-    @Query("SELECT * FROM gruppen")
+    // Holt ALLE Gruppen, auch die zur Loeschung vorgemerkten (fuer interne Sync-Logik benoetigt)
+    @Query("SELECT * FROM gruppe")
     suspend fun getAllGruppenIncludingMarkedForDeletion(): List<GruppeEntitaet>
 
-    // Methoden zum Abrufen von unsynchronisierten Daten (analog BenutzerDao)
-    @Query("SELECT * FROM gruppen WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")
+    // Methoden zum Abrufen von unsynchronisierten Daten
+    // KORRIGIERT: Nur nach istLokalGeaendert filtern, wie beim BenutzerDao
+    @Query("SELECT * FROM gruppe WHERE istLokalGeaendert = 1")
     suspend fun getUnsynchronisierteGruppen(): List<GruppeEntitaet>
 
-    // Methode zum Abrufen von Gruppen, die zur Löschung vorgemerkt sind
-    @Query("SELECT * FROM gruppen WHERE istLoeschungVorgemerkt = 1")
+    // Methode zum Abrufen von Gruppen, die zur Loeschung vorgemerkt sind
+    @Query("SELECT * FROM gruppe WHERE istLoeschungVorgemerkt = 1")
     suspend fun getGruppenFuerLoeschung(): List<GruppeEntitaet>
 
-    // Direkte Löschung (typischerweise nur vom SyncManager oder für Bereinigung)
-    @Query("DELETE FROM gruppen WHERE gruppenId = :gruppenId")
-    suspend fun deleteGruppeById(gruppenId: String)
+    @Query("DELETE FROM gruppe WHERE gruppeId = :gruppeId")
+    suspend fun deleteGruppeById(gruppeId: String)
+
+    @Query("DELETE FROM gruppe")
+    suspend fun deleteAllGruppen()
 }

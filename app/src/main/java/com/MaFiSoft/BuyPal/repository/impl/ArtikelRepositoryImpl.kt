@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/ArtikelRepositoryImpl.kt
-// Stand: 2025-06-02_22:30:00
+// Stand: 2025-06-06_21:10:00, Codezeilen: 195
 
 package com.MaFiSoft.BuyPal.repository.impl
 
@@ -7,35 +7,88 @@ import com.MaFiSoft.BuyPal.data.ArtikelDao
 import com.MaFiSoft.BuyPal.data.ArtikelEntitaet
 import com.MaFiSoft.BuyPal.repository.ArtikelRepository
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import timber.log.Timber
 import java.util.Date
+// import java.util.UUID // Nicht mehr benötigt, da UUID-Generierung hier entfernt wurde
 import javax.inject.Inject
-import timber.log.Timber // Import für Timber Logging
+import javax.inject.Singleton
 
 /**
- * Implementierung von [ArtikelRepository] für die Verwaltung von Artikeldaten.
- * Implementiert die Room-first-Strategie mit Delayed Sync.
+ * Implementierung des Artikel-Repository.
+ * Verwaltet Artikeldaten lokal (Room) und in der Cloud (Firestore) nach dem Room-first-Ansatz.
+ * Dieser Code implementiert den "Goldstandard" für Push-Pull-Synchronisation nach dem Vorbild von BenutzerRepositoryImpl.
+ * Die ID-Generierung erfolgt NICHT in dieser Methode, sondern muss vor dem Aufruf des Speicherns erfolgen.
  */
+@Singleton
 class ArtikelRepositoryImpl @Inject constructor(
     private val artikelDao: ArtikelDao,
     private val firestore: FirebaseFirestore
 ) : ArtikelRepository {
 
-    private val firestoreCollection = firestore.collection("artikel")
+    private val ioScope = CoroutineScope(Dispatchers.IO)
+    private val firestoreCollection = firestore.collection("artikel") // Firestore-Sammlung für Artikel
+
+    // Init-Block: Stellt sicher, dass initial Artikel aus Firestore in Room sind (Pull-Sync).
+    init {
+        ioScope.launch {
+            Timber.d("Initialer Sync: Starte Pull-Synchronisation der Artikeldaten (aus Init-Block).")
+            performPullSync()
+            Timber.d("Initialer Sync: Pull-Synchronisation der Artikeldaten abgeschlossen (aus Init-Block).")
+        }
+    }
 
     // --- Lokale Datenbank-Operationen (Room) ---
 
-    // WICHTIG: Kein Sync-Aufruf hier! Nur lokale Operation und Markierung.
-    override suspend fun artikelSpeichern(artikel: ArtikelEntitaet) { // Name der Methode ist jetzt deutsch: artikelSpeichern
-        Timber.d("ArtikelRepositoryImpl: Versuche Artikel lokal zu speichern/aktualisieren: ${artikel.name}")
+    override suspend fun artikelSpeichern(artikel: ArtikelEntitaet) {
+        Timber.d("ArtikelRepositoryImpl: Versuche Artikel lokal zu speichern/aktualisieren: ${artikel.name} (ID: ${artikel.artikelId}).")
+
+        // KORRIGIERT: Keine automatische ID-Generierung hier. Entspricht dem Goldstandard von BenutzerRepositoryImpl.
+        // Die artikelId wird so übernommen, wie sie im übergebenen ArtikelEntitaet-Objekt vorhanden ist.
+        // Eine neue ID (z.B. UUID) muss VOR dem Aufruf dieser Methode gesetzt werden, wenn es sich um einen neuen Artikel handelt.
         val artikelMitTimestamp = artikel.copy(
             zuletztGeaendert = Date(),
             istLokalGeaendert = true // Markieren für späteren Sync
         )
-        artikelDao.artikelEinfuegen(artikelMitTimestamp)
-        Timber.d("ArtikelRepositoryImpl: Artikel lokal gespeichert/aktualisiert: ${artikelMitTimestamp.name}")
+
+        Timber.d("ArtikelRepositoryImpl: Vor DAO-Einfügung/Aktualisierung: Artikel ${artikelMitTimestamp.name}, ID: ${artikelMitTimestamp.artikelId}, LokalGeaendert: ${artikelMitTimestamp.istLokalGeaendert}")
+        try {
+            artikelDao.artikelEinfuegen(artikelMitTimestamp)
+            Timber.d("ArtikelRepositoryImpl: Artikel ${artikelMitTimestamp.name} (ID: ${artikelMitTimestamp.artikelId}) erfolgreich lokal gespeichert/aktualisiert.")
+        } catch (e: Exception) {
+            Timber.e(e, "ArtikelRepositoryImpl: FEHLER beim lokalen Speichern/Aktualisieren von Artikel ${artikelMitTimestamp.name} (ID: ${artikelMitTimestamp.artikelId}).")
+        }
+    }
+
+    override suspend fun artikelAktualisieren(artikel: ArtikelEntitaet) {
+        // Nutzt die gleiche Logik wie Speichern, um Flags zu setzen
+        artikelSpeichern(artikel)
+        Timber.d("ArtikelRepositoryImpl: Artikel aktualisiert durch 'artikelSpeichern' Logik: ${artikel.artikelId}")
+    }
+
+    override suspend fun artikelLoeschen(artikel: ArtikelEntitaet) {
+        Timber.d("ArtikelRepositoryImpl: Markiere Artikel zur Löschung: ${artikel.name} (ID: ${artikel.artikelId}).")
+        val artikelLoeschenVorgemerkt = artikel.copy(
+            istLoeschungVorgemerkt = true,
+            zuletztGeaendert = Date(),
+            istLokalGeaendert = true // Auch eine Löschung ist eine lokale Änderung, die gesynct werden muss
+        )
+        artikelDao.artikelAktualisieren(artikelLoeschenVorgemerkt)
+        Timber.d("ArtikelRepositoryImpl: Artikel ${artikelLoeschenVorgemerkt.name} (ID: ${artikelLoeschenVorgemerkt.artikelId}) lokal zur Löschung vorgemerkt.")
+    }
+
+    override suspend fun loescheArtikel(artikelId: String) {
+        Timber.d("ArtikelRepositoryImpl: Artikel endgültig löschen (lokal): $artikelId")
+        try {
+            artikelDao.deleteArtikelById(artikelId)
+            Timber.d("ArtikelRepositoryImpl: Artikel $artikelId erfolgreich lokal gelöscht.")
+        } catch (e: Exception) {
+            Timber.e(e, "ArtikelRepositoryImpl: Fehler beim endgültigen Löschen von Artikel $artikelId.")
+        }
     }
 
     override fun getArtikelById(artikelId: String): Flow<ArtikelEntitaet?> {
@@ -44,141 +97,135 @@ class ArtikelRepositoryImpl @Inject constructor(
     }
 
     override fun getAllArtikel(): Flow<List<ArtikelEntitaet>> {
-        Timber.d("ArtikelRepositoryImpl: Abrufen aller Artikel (nicht zur Löschung vorgemerkt).")
+        Timber.d("ArtikelRepositoryImpl: Abrufen aller aktiven Artikel.")
         return artikelDao.getAllArtikel()
-    }
-
-    // WICHTIG: Kein Sync-Aufruf hier! Nur lokale Operation und Markierung.
-    override suspend fun markArtikelForDeletion(artikel: ArtikelEntitaet) { // Name der Methode ist jetzt deutsch: markArtikelForDeletion
-        Timber.d("ArtikelRepositoryImpl: Markiere Artikel zur Löschung: ${artikel.name}")
-        val artikelLoeschenVorgemerkt = artikel.copy(
-            istLoeschungVorgemerkt = true,
-            zuletztGeaendert = Date(),
-            istLokalGeaendert = true // Auch eine Löschung ist eine lokale Änderung, die gesynct werden muss
-        )
-        artikelDao.artikelAktualisieren(artikelLoeschenVorgemerkt)
-        Timber.d("ArtikelRepositoryImpl: Artikel zur Löschung vorgemerkt: ${artikelLoeschenVorgemerkt.name}")
-    }
-
-    // Zusätzliche Methoden für Artikel (relevant für Einkaufslisten)
-    override fun getArtikelFuerListe(listenId: String): Flow<List<ArtikelEntitaet>> {
-        Timber.d("ArtikelRepositoryImpl: Abrufen Artikel für Liste: $listenId")
-        return artikelDao.getArtikelFuerListe(listenId)
-    }
-
-    override fun getNichtAbgehakteArtikelFuerListe(listenId: String): Flow<List<ArtikelEntitaet>> {
-        Timber.d("ArtikelRepositoryImpl: Abrufen nicht abgehakte Artikel für Liste: $listenId")
-        return artikelDao.getNichtAbgehakteArtikelFuerListe(listenId)
-    }
-
-    // ENTFERNT: getNichtAbgehakteArtikelFuerListeUndGeschaeft, da die zugehörige DAO-Methode entfernt wurde.
-    // Die Logik für die Filterung nach Geschäft muss auf einer höheren Ebene (z.B. im ViewModel) erfolgen,
-    // indem die Produkt-ID des Artikels und die ProduktGeschaeftVerbindungEntitaet verwendet werden.
-
-    // WICHTIG: Kein Sync-Aufruf hier! Nur lokale Operation und Markierung.
-    override suspend fun toggleArtikelAbgehakt(artikelId: String, abgehakt: Boolean) { // Name der Methode ist jetzt deutsch: toggleArtikelAbgehakt
-        Timber.d("ArtikelRepositoryImpl: Artikel $artikelId Status 'abgehakt' ändern zu $abgehakt")
-        val artikel = artikelDao.getArtikelById(artikelId).firstOrNull()
-        artikel?.let {
-            val updatedArtikel = it.copy(
-                abgehakt = abgehakt,
-                zuletztGeaendert = Date(),
-                istLokalGeaendert = true
-            )
-            artikelDao.artikelAktualisieren(updatedArtikel)
-            Timber.d("ArtikelRepositoryImpl: Artikel ${updatedArtikel.name} Status 'abgehakt' aktualisiert.")
-        } ?: Timber.w("ArtikelRepositoryImpl: Artikel mit ID $artikelId zum Aktualisieren von 'abgehakt' nicht gefunden.")
-    }
-
-    // WICHTIG: Kein Sync-Aufruf hier! Dies ist eine "Hard-Delete" Methode, die normalerweise nur im Sync-Prozess oder für Bereinigung verwendet wird.
-    override suspend fun loescheArtikel(artikel: ArtikelEntitaet) { // Name der Methode ist jetzt deutsch: loescheArtikel
-        Timber.d("ArtikelRepositoryImpl: Artikel endgültig löschen (sowohl lokal als auch aus Firestore): ${artikel.name}")
-        try {
-            // Erst aus Firestore löschen
-            firestoreCollection.document(artikel.artikelId).delete().await()
-            // Dann lokal löschen
-            artikelDao.deleteArtikelById(artikel.artikelId)
-            Timber.d("ArtikelRepositoryImpl: Artikel ${artikel.name} erfolgreich lokal und aus Firestore gelöscht.")
-        } catch (e: Exception) {
-            Timber.e(e, "ArtikelRepositoryImpl: Fehler beim endgültigen Löschen von Artikel ${artikel.name}.")
-        }
     }
 
     // --- Synchronisations-Operationen (Room <-> Firestore) ---
 
-    // Dies ist die einzige Methode, die den Sync initiiert
-    override suspend fun syncArtikelDaten() { // Name der Methode ist jetzt deutsch: syncArtikelDaten
-        Timber.d("ArtikelRepositoryImpl: Starte Synchronisation der Artikeldaten.")
+    override suspend fun syncArtikelDaten() {
+        Timber.d("ArtikelRepositoryImpl: Starte manuelle Synchronisation der Artikeldaten.")
 
-        // 1. Lokale Änderungen zu Firestore hochladen
+        // 1. Lokale Löschungen zu Firestore pushen
+        val artikelFuerLoeschung = artikelDao.getArtikelFuerLoeschung()
+        for (artikel in artikelFuerLoeschung) {
+            try {
+                Timber.d("Sync: Push Löschung für Artikel: ${artikel.name} (ID: ${artikel.artikelId}).")
+                firestoreCollection.document(artikel.artikelId).delete().await()
+                artikelDao.deleteArtikelById(artikel.artikelId)
+                Timber.d("Sync: Artikel ${artikel.name} (ID: ${artikel.artikelId}) erfolgreich aus Firestore und lokal gelöscht.")
+            } catch (e: Exception) {
+                Timber.e(e, "Sync: Fehler beim Löschen von Artikel ${artikel.name} (ID: ${artikel.artikelId}) aus Firestore.")
+                // Fehlerbehandlung: Artikel bleibt zur Löschung vorgemerkt, wird später erneut versucht
+            }
+        }
+
+        // 2. Lokale Hinzufügungen/Änderungen zu Firestore pushen
         val unsynchronisierteArtikel = artikelDao.getUnsynchronisierteArtikel()
         for (artikel in unsynchronisierteArtikel) {
             try {
-                firestoreCollection.document(artikel.artikelId).set(artikel).await()
+                // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false FÜR FIRESTORE, da der Datensatz jetzt synchronisiert wird
+                val artikelFuerFirestore = artikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
+                Timber.d("Sync: Push Upload/Update für Artikel: ${artikel.name} (ID: ${artikel.artikelId}).")
+                firestoreCollection.document(artikel.artikelId).set(artikelFuerFirestore).await()
                 // Nach erfolgreichem Upload lokale Flags zurücksetzen
-                val gesyncterArtikel = artikel.copy(istLokalGeaendert = false)
-                artikelDao.artikelAktualisieren(gesyncterArtikel)
-                Timber.d("ArtikelRepositoryImpl: Artikel ${artikel.name} erfolgreich mit Firestore synchronisiert (Upload).")
+                artikelDao.artikelAktualisieren(artikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                Timber.d("Sync: Artikel ${artikel.name} (ID: ${artikel.artikelId}) erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
             } catch (e: Exception) {
-                Timber.e(e, "ArtikelRepositoryImpl: Fehler beim Hochladen von Artikel ${artikel.name} zu Firestore.")
+                Timber.e(e, "Sync: Fehler beim Hochladen von Artikel ${artikel.name} (ID: ${artikel.artikelId}) zu Firestore.")
                 // Fehlerbehandlung: Artikel bleibt als lokal geändert markiert, wird später erneut versucht
             }
         }
 
-        // 2. Zur Löschung vorgemerkte Artikel aus Firestore löschen und lokal entfernen
-        val artikelFuerLoeschung = artikelDao.getArtikelFuerLoeschung()
-        for (artikel in artikelFuerLoeschung) {
-            try {
-                firestoreCollection.document(artikel.artikelId).delete().await()
-                artikelDao.deleteArtikelById(artikel.artikelId)
-                Timber.d("ArtikelRepositoryImpl: Artikel ${artikel.name} erfolgreich aus Firestore und lokal gelöscht.")
-            } catch (e: Exception) {
-                Timber.e(e, "ArtikelRepositoryImpl: Fehler beim Löschen von Artikel ${artikel.name} aus Firestore.")
-                // Fehlerbehandlung: Artikel bleibt zur Löschung vorgemerkt
-            }
-        }
-
         // 3. Firestore-Daten herunterladen und lokale Datenbank aktualisieren (Last-Write-Wins)
+        Timber.d("Sync: Starte Pull-Phase der Synchronisation für Artikeldaten.")
+        performPullSync() // Ausgelagert in separate Funktion
+        Timber.d("Sync: Synchronisation der Artikeldaten abgeschlossen.")
+    }
+
+    // Ausgelagerte Funktion für den Pull-Sync-Teil mit detaillierterem Logging (Goldstandard-Logik)
+    private suspend fun performPullSync() {
         try {
             val firestoreSnapshot = firestoreCollection.get().await()
             val firestoreArtikelList = firestoreSnapshot.toObjects(ArtikelEntitaet::class.java)
+            Timber.d("Sync Pull: ${firestoreArtikelList.size} Artikel von Firestore abgerufen.")
+
+            val allLocalArtikel = artikelDao.getAllArtikelIncludingMarkedForDeletion()
+            val localArtikelMap = allLocalArtikel.associateBy { it.artikelId }
+            Timber.d("Sync Pull: ${allLocalArtikel.size} Artikel lokal gefunden (inkl. gelöschter/geänderter).")
 
             for (firestoreArtikel in firestoreArtikelList) {
-                val lokalerArtikel = artikelDao.getArtikelById(firestoreArtikel.artikelId).firstOrNull()
+                val lokalerArtikel = localArtikelMap[firestoreArtikel.artikelId]
+                Timber.d("Sync Pull: Verarbeite Firestore-Artikel: ${firestoreArtikel.name} (ID: ${firestoreArtikel.artikelId}).")
 
                 if (lokalerArtikel == null) {
                     // Artikel existiert nur in Firestore, lokal einfügen
-                    artikelDao.artikelEinfuegen(firestoreArtikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
-                    Timber.d("ArtikelRepositoryImpl: Neuer Artikel ${firestoreArtikel.name} von Firestore lokal hinzugefügt.")
+                    // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false, da es von Firestore kommt und synchronisiert ist
+                    val newArtikelInRoom = firestoreArtikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
+                    artikelDao.artikelEinfuegen(newArtikelInRoom)
+                    Timber.d("Sync Pull: NEUER Artikel ${newArtikelInRoom.name} (ID: ${newArtikelInRoom.artikelId}) von Firestore in Room HINZUGEFÜGT.")
                 } else {
-                    // Artikel existiert in beiden, Last-Write-Wins anwenden
-                    if (firestoreArtikel.zuletztGeaendert != null && lokalerArtikel.zuletztGeaendert != null &&
-                        firestoreArtikel.zuletztGeaendert.after(lokalerArtikel.zuletztGeaendert) &&
-                        !lokalerArtikel.istLokalGeaendert) {
-                        // Firestore ist neuer und lokale Version ist nicht lokal geändert
-                        artikelDao.artikelAktualisieren(firestoreArtikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
-                        Timber.d("ArtikelRepositoryImpl: Artikel ${firestoreArtikel.name} von Firestore aktualisiert (Last-Write-Wins).")
-                    } else if (lokalerArtikel.istLokalGeaendert) {
-                        // Lokale Version ist neuer oder lokal geändert, überspringe das Herunterladen
-                        Timber.d("ArtikelRepositoryImpl: Artikel ${lokalerArtikel.name} lokal geändert, Firestore-Version ignoriert.")
-                        // Option: hier könnte man auch die lokale Version erneut hochladen, um Konflikte zu lösen
+                    Timber.d("Sync Pull: Lokaler Artikel ${lokalerArtikel.name} (ID: ${lokalerArtikel.artikelId}) gefunden. Lokal geändert: ${lokalerArtikel.istLokalGeaendert}, Zur Löschung vorgemerkt: ${lokalerArtikel.istLoeschungVorgemerkt}.")
+
+                    // Prioritäten der Konfliktlösung (Konsistent mit BenutzerRepositoryImpl):
+                    // 1. Wenn lokal zur Löschung vorgemerkt, lokale Version beibehalten (wird im Push gelöscht)
+                    if (lokalerArtikel.istLoeschungVorgemerkt) {
+                        Timber.d("Sync Pull: Lokaler Artikel ${lokalerArtikel.name} ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert.")
+                        continue // Nächsten Firestore-Artikel verarbeiten
                     }
-                    // TODO: Fall behandeln, wenn beide lokal geändert wurden oder bei Gleichstand
+                    // 2. Wenn lokal geändert, lokale Version beibehalten (wird im Push hochgeladen)
+                    if (lokalerArtikel.istLokalGeaendert) {
+                        Timber.d("Sync Pull: Lokaler Artikel ${lokalerArtikel.name} ist lokal geändert. Pull-Version von Firestore wird ignoriert.")
+                        continue // Nächsten Firestore-Artikel verarbeiten
+                    }
+
+                    // 3. Wenn Firestore-Version zur Löschung vorgemerkt ist, lokal löschen (da lokale Version nicht geändert ist und nicht zur Löschung vorgemerkt)
+                    if (firestoreArtikel.istLoeschungVorgemerkt) {
+                        artikelDao.deleteArtikelById(lokalerArtikel.artikelId)
+                        Timber.d("Sync Pull: Artikel ${lokalerArtikel.name} lokal GELÖSCHT, da in Firestore als gelöscht markiert und lokale Version nicht verändert.")
+                        continue // Nächsten Firestore-Artikel verarbeiten
+                    }
+
+                    // 4. Last-Write-Wins basierend auf Zeitstempel (wenn keine Konflikte nach Prioritäten 1-3)
+                    val firestoreTimestamp = firestoreArtikel.zuletztGeaendert ?: firestoreArtikel.erstellungszeitpunkt
+                    val localTimestamp = lokalerArtikel.zuletztGeaendert ?: lokalerArtikel.erstellungszeitpunkt
+
+                    val isFirestoreNewer = when {
+                        firestoreTimestamp == null && localTimestamp == null -> false // Beide null, keine klare Entscheidung, lokale Version (die ja nicht geändert ist) behalten
+                        firestoreTimestamp != null && localTimestamp == null -> true // Firestore hat Timestamp, lokal nicht, Firestore ist neuer
+                        firestoreTimestamp == null && localTimestamp != null -> false // Lokal hat Timestamp, Firestore nicht, lokal ist neuer
+                        firestoreTimestamp != null && localTimestamp != null -> firestoreTimestamp.after(localTimestamp) // Beide haben Timestamps, vergleichen
+                        else -> false // Sollte nicht passieren
+                    }
+
+                    if (isFirestoreNewer) {
+                        // Firestore ist neuer und lokale Version ist weder zur Löschung vorgemerkt noch lokal geändert (da durch 'continue' oben abgefangen)
+                        val updatedArtikel = firestoreArtikel.copy(
+                            istLokalGeaendert = false, // Ist jetzt synchronisiert
+                            istLoeschungVorgemerkt = false
+                        )
+                        artikelDao.artikelAktualisieren(updatedArtikel) // Verwende Aktualisieren, da REPLACE/Update
+                        Timber.d("Sync Pull: Artikel ${updatedArtikel.name} (ID: ${updatedArtikel.artikelId}) von Firestore in Room AKTUALISIERT (Firestore neuer).")
+                    } else {
+                        Timber.d("Sync Pull: Lokaler Artikel ${lokalerArtikel.name} (ID: ${lokalerArtikel.artikelId}) ist aktueller oder gleich, oder Firestore-Version ist nicht neuer. KEINE AKTUALISIERUNG von Firestore.")
+                    }
                 }
             }
-            // 4. Lokale Artikel finden, die in Firestore nicht mehr existieren und lokal NICHT zur Löschung vorgemerkt sind
-            val allLocalArtikel = artikelDao.getAllArtikelIncludingMarkedForDeletion()
+
+            // 5. Lokale Artikel finden, die in Firestore nicht mehr existieren und lokal NICHT zur Löschung vorgemerkt sind
             val firestoreArtikelIds = firestoreArtikelList.map { it.artikelId }.toSet()
 
             for (localArtikel in allLocalArtikel) {
-                if (localArtikel.artikelId.isNotEmpty() && !firestoreArtikelIds.contains(localArtikel.artikelId) && !localArtikel.istLoeschungVorgemerkt) {
+                // Hinzugefügt: Schutz für lokal geänderte Elemente
+                if (localArtikel.artikelId.isNotEmpty() && !firestoreArtikelIds.contains(localArtikel.artikelId) &&
+                    !localArtikel.istLoeschungVorgemerkt && !localArtikel.istLokalGeaendert) { // <-- WICHTIGE HINZUFÜGUNG
                     artikelDao.deleteArtikelById(localArtikel.artikelId)
-                    Timber.d("Artikel lokal geloescht, da nicht mehr in Firestore vorhanden: ${localArtikel.name}")
+                    Timber.d("Sync Pull: Lokaler Artikel ${localArtikel.name} (ID: ${localArtikel.artikelId}) GELÖSCHT, da nicht mehr in Firestore vorhanden und lokal NICHT zur Löschung vorgemerkt UND NICHT lokal geändert war.")
                 }
             }
-            Timber.d("ArtikelRepositoryImpl: Synchronisation der Artikeldaten abgeschlossen.")
+            Timber.d("Sync Pull: Pull-Synchronisation der Artikeldaten abgeschlossen.")
         } catch (e: Exception) {
-            Timber.e(e, "ArtikelRepositoryImpl: Fehler beim Herunterladen und Synchronisieren von Artikeln von Firestore.")
+            Timber.e(e, "Sync Pull: FEHLER beim Herunterladen und Synchronisieren von Artikeln von Firestore: ${e.message}")
         }
     }
 }

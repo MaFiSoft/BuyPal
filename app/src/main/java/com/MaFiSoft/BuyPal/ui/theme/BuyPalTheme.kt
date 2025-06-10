@@ -1,4 +1,6 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/theme/BuyPalTheme.kt
+// Stand: 2025-06-03_01:45:00 (KORRIGIERT: Direkte Hex-Werte in ColorScheme-Definitionen)
+
 package com.MaFiSoft.BuyPal.ui.theme
 
 import android.app.Activity
@@ -15,28 +17,74 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+// import com.MaFiSoft.BuyPal.R // <--- DIESER IMPORT WIRD NICHT MEHR BENÖTIGT
+import androidx.compose.ui.graphics.Color // <--- DIESER IMPORT IST WIEDER ENTSCHEIDEND!
+// import androidx.compose.ui.res.colorResource // <--- DIESER IMPORT WIRD NICHT MEHR BENÖTIGT
 
-// Definiere deine Farbpaletten
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
-)
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    primary = Color(0xFF2196F3), // blue_500
+    onPrimary = Color(0xFFFFFFFF), // white
+    primaryContainer = Color(0xFF90CAF9), // blue_200
+    onPrimaryContainer = Color(0xFF1976D2), // blue_700
+    secondary = Color(0xFF80CBC4), // teal_200
+    onSecondary = Color(0xFF000000), // black
+    secondaryContainer = Color(0xFFC8E6C9),
+    onSecondaryContainer = Color(0xFF2E7D32),
+    tertiary = Color(0xFFBB86FC),
+    onTertiary = Color(0xFF000000),
+    tertiaryContainer = Color(0xFFD0BCFF),
+    onTertiaryContainer = Color(0xFF381E72),
+    error = Color(0xFFBA1A1A),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
+    background = Color(0xFFFFFFFF), // white
+    onBackground = Color(0xFF000000), // black
+    surface = Color(0xFFFFFFFF), // white
+    onSurface = Color(0xFF000000), // black
+    surfaceVariant = Color(0xFFE0E0E0),
+    onSurfaceVariant = Color(0xFF424242),
+    outline = Color(0xFF757575),
+    inverseOnSurface = Color(0xFFFFFFFF), // white
+    inverseSurface = Color(0xFF303030), // dark grey
+    inversePrimary = Color(0xFF90CAF9), // blue_200
+    surfaceTint = Color(0xFF2196F3), // blue_500
+    outlineVariant = Color(0xFFBDBDBD),
+    scrim = Color(0xFF000000)
+)
 
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+
+private val DarkColorScheme = darkColorScheme(
+    primary = Color(0xFF90CAF9), // blue_200
+    onPrimary = Color(0xFF1976D2), // blue_700
+    primaryContainer = Color(0xFF1976D2), // blue_700
+    onPrimaryContainer = Color(0xFF90CAF9), // blue_200
+    secondary = Color(0xFF80CBC4), // teal_200
+    onSecondary = Color(0xFF000000), // black
+    secondaryContainer = Color(0xFF4CAF50),
+    onSecondaryContainer = Color(0xFFC8E6C9),
+    tertiary = Color(0xFFD0BCFF),
+    onTertiary = Color(0xFF381E72),
+    tertiaryContainer = Color(0xFF4F378A),
+    onTertiaryContainer = Color(0xFFEADDFF),
+    error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF121212), // dark grey
+    onBackground = Color(0xFFFFFFFF), // white
+    surface = Color(0xFF121212), // dark grey
+    onSurface = Color(0xFFFFFFFF), // white
+    surfaceVariant = Color(0xFF424242),
+    onSurfaceVariant = Color(0xFFBDBDBD),
+    outline = Color(0xFF9E9E9E),
+    inverseOnSurface = Color(0xFF212121),
+    inverseSurface = Color(0xFFE0E0E0),
+    inversePrimary = Color(0xFF2196F3), // blue_500
+    surfaceTint = Color(0xFF90CAF9), // blue_200
+    outlineVariant = Color(0xFF424242),
+    scrim = Color(0xFF000000)
 )
 
 @Composable
@@ -51,6 +99,7 @@ fun BuyPalTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
+
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
@@ -65,7 +114,7 @@ fun BuyPalTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography, // Du brauchst auch eine Typography.kt
+        typography = Typography,
         content = content
     )
 }

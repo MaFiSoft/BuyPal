@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/ProduktDao.kt
-// Stand: 2025-06-02_22:00:26
+// Stand: 2025-06-04_11:30:00, Codezeilen: 56
 
 package com.MaFiSoft.BuyPal.data
 
@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 
 /**
  * Data Access Object (DAO) fuer die ProduktEntitaet.
- * Angepasst an den Goldstandard von BenutzerDao und ArtikelDao.
+ * Definiert Methoden fuer den Zugriff auf Produkt-Daten in der Room-Datenbank.
  */
 @Dao
 interface ProduktDao {
@@ -22,29 +22,32 @@ interface ProduktDao {
     @Update
     suspend fun produktAktualisieren(produkt: ProduktEntitaet)
 
-    @Query("SELECT * FROM produkte WHERE produktId = :produktId")
+    @Query("SELECT * FROM produkt WHERE produktId = :produktId") // KORRIGIERT: Tabellenname
     fun getProduktById(produktId: String): Flow<ProduktEntitaet?>
 
-    // Angepasst an den Goldstandard: Filtert gelöschte Produkte heraus
-    @Query("SELECT * FROM produkte WHERE istLoeschungVorgemerkt = 0 ORDER BY name ASC")
+    // Holt alle aktiven Produkte (nicht zur Löschung vorgemerkt)
+    @Query("SELECT * FROM produkt WHERE istLoeschungVorgemerkt = 0 ORDER BY name ASC") // KORRIGIERT: Tabellenname
     fun getAllProdukte(): Flow<List<ProduktEntitaet>>
 
-    @Query("SELECT * FROM produkte WHERE kategorieId = :kategorieId AND istLoeschungVorgemerkt = 0 ORDER BY name ASC")
+    // Holt Produkte nach Kategorie ID
+    @Query("SELECT * FROM produkt WHERE kategorieId = :kategorieId AND istLoeschungVorgemerkt = 0 ORDER BY name ASC") // KORRIGIERT: Tabellenname
     fun getProdukteByKategorie(kategorieId: String): Flow<List<ProduktEntitaet>>
 
-    // NEU: Holt ALLE Produkte, auch die zur Löschung vorgemerkten (für interne Sync-Logik benötigt)
-    @Query("SELECT * FROM produkte")
+    // Holt ALLE Produkte, auch die zur Löschung vorgemerkten (für interne Sync-Logik benötigt)
+    @Query("SELECT * FROM produkt") // KORRIGIERT: Tabellenname
     suspend fun getAllProdukteIncludingMarkedForDeletion(): List<ProduktEntitaet>
 
-    // Methoden zum Abrufen von unsynchronisierten Daten (analog BenutzerDao)
-    @Query("SELECT * FROM produkte WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")
+    // Methoden zum Abrufen von unsynchronisierten Daten
+    @Query("SELECT * FROM produkt WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0") // KORRIGIERT: Tabellenname
     suspend fun getUnsynchronisierteProdukte(): List<ProduktEntitaet>
 
-    // Methode zum Abrufen von Produkten, die zur Löschung vorgemerkt sind
-    @Query("SELECT * FROM produkte WHERE istLoeschungVorgemerkt = 1")
+    // Methode zum Abrufen von Produkte, die zur Löschung vorgemerkt sind
+    @Query("SELECT * FROM produkt WHERE istLoeschungVorgemerkt = 1") // KORRIGIERT: Tabellenname
     suspend fun getProdukteFuerLoeschung(): List<ProduktEntitaet>
 
-    // Direkte Löschung (typischerweise nur vom SyncManager oder für Bereinigung)
-    @Query("DELETE FROM produkte WHERE produktId = :produktId")
+    @Query("DELETE FROM produkt WHERE produktId = :produktId") // KORRIGIERT: Tabellenname
     suspend fun deleteProduktById(produktId: String)
+
+    @Query("DELETE FROM produkt") // KORRIGIERT: Tabellenname
+    suspend fun deleteAllProdukte()
 }

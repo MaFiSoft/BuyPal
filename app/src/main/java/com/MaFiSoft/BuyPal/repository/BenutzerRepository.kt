@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/BenutzerRepository.kt
-// Stand: 2025-06-02_02:00:00 (KORRIGIERT: Methodennamen auf Deutsch angepasst)
+// Stand: 2025-06-04_12:50:00, Codezeilen: 20
 
 package com.MaFiSoft.BuyPal.repository
 
@@ -18,7 +18,7 @@ interface BenutzerRepository {
     fun getAktuellerBenutzerFromRoom(): Flow<BenutzerEntitaet?>
     fun getAllBenutzer(): Flow<List<BenutzerEntitaet>>
     suspend fun markBenutzerForDeletion(benutzer: BenutzerEntitaet) // Setzt Löschungs-Flag und markiert für Sync (Soft Delete)
-    suspend fun loescheBenutzer(benutzer: BenutzerEntitaet) // Für endgültige Löschung (typischerweise nur vom SyncManager aufgerufen)
+    suspend fun loescheBenutzer(benutzerId: String) // KORRIGIERT: Parameter auf benutzerId: String geändert
 
     // Synchronisations-Logik
     suspend fun syncBenutzerDaten()

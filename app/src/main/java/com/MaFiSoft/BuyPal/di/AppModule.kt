@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/di/AppModule.kt
-// Stand: 2025-06-02_23:12:00
+// Stand: 2025-06-03_15:35:00, Codezeilen: 175
 
 package com.MaFiSoft.BuyPal.di
 
@@ -10,9 +10,10 @@ import com.MaFiSoft.BuyPal.data.AppDatabase
 import com.MaFiSoft.BuyPal.data.BenutzerDao
 import com.MaFiSoft.BuyPal.data.ArtikelDao
 import com.MaFiSoft.BuyPal.data.KategorieDao
-import com.MaFiSoft.BuyPal.data.EinkaufslisteDao
+import com.MaFiSoft.BuyPal.data.EinkaufslisteDao // HINZUGEFÜGT: Import für EinkaufslisteDao
 import com.MaFiSoft.BuyPal.data.GruppeDao
-import com.MaFiSoft.BuyPal.data.ProduktDao // NEU: Import für ProduktDao
+import com.MaFiSoft.BuyPal.data.ProduktDao
+import com.MaFiSoft.BuyPal.data.GeschaeftDao
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.auth.FirebaseAuth
@@ -26,14 +27,18 @@ import com.MaFiSoft.BuyPal.repository.impl.ArtikelRepositoryImpl
 import com.MaFiSoft.BuyPal.repository.KategorieRepository
 import com.MaFiSoft.BuyPal.repository.impl.KategorieRepositoryImpl
 
-import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
-import com.MaFiSoft.BuyPal.repository.impl.EinkaufslisteRepositoryImpl
+import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository // HINZUGEFÜGT: Import für EinkaufslisteRepository
+import com.MaFiSoft.BuyPal.repository.impl.EinkaufslisteRepositoryImpl // HINZUGEFÜGT: Import für EinkaufslisteRepositoryImpl
 
 import com.MaFiSoft.BuyPal.repository.GruppeRepository
 import com.MaFiSoft.BuyPal.repository.impl.GruppeRepositoryImpl
 
-import com.MaFiSoft.BuyPal.repository.ProduktRepository // NEU: Import für ProduktRepository
-import com.MaFiSoft.BuyPal.repository.impl.ProduktRepositoryImpl // NEU: Import für ProduktRepositoryImpl
+import com.MaFiSoft.BuyPal.repository.ProduktRepository
+import com.MaFiSoft.BuyPal.repository.impl.ProduktRepositoryImpl
+
+import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
+import com.MaFiSoft.BuyPal.repository.impl.GeschaeftRepositoryImpl
+
 
 import dagger.Module
 import dagger.Provides
@@ -101,7 +106,7 @@ object AppModule {
         return database.getEinkaufslisteDao()
     }
 
-    // Hinzugefügt: Stellt das GruppeDao bereit.
+    // NEU: Stellt das GruppeDao bereit.
     @Provides
     @Singleton
     fun provideGruppeDao(database: AppDatabase): GruppeDao {
@@ -113,6 +118,13 @@ object AppModule {
     @Singleton
     fun provideProduktDao(database: AppDatabase): ProduktDao {
         return database.getProduktDao()
+    }
+
+    // NEU: Stellt das GeschaeftDao bereit.
+    @Provides
+    @Singleton
+    fun provideGeschaeftDao(database: AppDatabase): GeschaeftDao {
+        return database.getGeschaeftDao()
     }
 
 
@@ -156,23 +168,13 @@ object AppModule {
         return EinkaufslisteRepositoryImpl(einkaufslisteDao, firestore)
     }
 
-    // Hinzugefügt: Bereitstellung des GruppeRepository (Interface) durch die Implementierungsklasse.
+    // NEU: Bereitstellung des GruppeRepository (Interface) durch die Implementierungsklasse.
     @Provides
     @Singleton
     fun provideGruppeRepository(
         gruppeDao: GruppeDao,
         firestore: FirebaseFirestore
     ): GruppeRepository {
-        return GruppeRepositoryImpl(gruppeDao, firestore)
-    }
-
-    // Hinzugefügt: Bereitstellung der konkreten GruppeRepositoryImpl für spezifische Injektion (z.B. im ViewModel)
-    @Provides
-    @Singleton
-    fun provideGruppeRepositoryImpl(
-        gruppeDao: GruppeDao,
-        firestore: FirebaseFirestore
-    ): GruppeRepositoryImpl {
         return GruppeRepositoryImpl(gruppeDao, firestore)
     }
 
@@ -184,5 +186,15 @@ object AppModule {
         firestore: FirebaseFirestore
     ): ProduktRepository {
         return ProduktRepositoryImpl(produktDao, firestore)
+    }
+
+    // NEU: Bereitstellung des GeschaeftRepository (Interface) durch die Implementierungsklasse.
+    @Provides
+    @Singleton
+    fun provideGeschaeftRepository(
+        geschaeftDao: GeschaeftDao,
+        firestore: FirebaseFirestore
+    ): GeschaeftRepository {
+        return GeschaeftRepositoryImpl(geschaeftDao, firestore)
     }
 }

@@ -1,79 +1,83 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/presentation/viewmodel/ArtikelViewModel.kt
-// Stand: 2025-06-02_22:30:00
+// Stand: 2025-06-03_15:15:00, Codezeilen: 60
 
 package com.MaFiSoft.BuyPal.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.MaFiSoft.BuyPal.data.ArtikelEntitaet
-import com.MaFiSoft.BuyPal.repository.ArtikelRepository // WICHTIG: Repository-Interface injizieren
+import com.MaFiSoft.BuyPal.repository.ArtikelRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
 class ArtikelViewModel @Inject constructor(
-    private val artikelRepository: ArtikelRepository // Injiziere das Repository-Interface
+    private val artikelRepository: ArtikelRepository
 ) : ViewModel() {
 
-    // Exponiert alle Artikel als Flow (Beispiel).
+    // Exponiert alle aktiven Artikel als StateFlow, um sie in der UI zu beobachten
     val alleArtikel: Flow<List<ArtikelEntitaet>> = artikelRepository.getAllArtikel()
+        .map { it.sortedBy { artikel -> artikel.name } } // Optional: Sortierung hinzufügen
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000), // Bleibt aktiv, solange die UI sichtbar ist
+            initialValue = emptyList() // Initialer leerer Wert
+        )
 
     // Funktion zum Einfügen/Speichern eines Artikels
-    // WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
-    fun artikelSpeichern(artikel: ArtikelEntitaet) { // Name der ViewModel-Methode ist deutsch
+    fun artikelSpeichern(artikel: ArtikelEntitaet) {
+        Timber.d("ArtikelViewModel: Versuche Artikel zu speichern: ${artikel.name}")
         viewModelScope.launch {
-            artikelRepository.artikelSpeichern(artikel) // Name der Repository-Methode ist deutsch
-            Timber.d("Artikel zur Speicherung/Aktualisierung angefordert über ViewModel: ${artikel.name}")
+            try {
+                artikelRepository.artikelSpeichern(artikel)
+                Timber.d("ArtikelViewModel: Artikel ${artikel.name} lokal gespeichert.")
+            } catch (e: Exception) {
+                Timber.e(e, "ArtikelViewModel: Fehler beim lokalen Speichern des Artikels: ${e.message}")
+            }
+        }
+    }
+
+    // Funktion zum Aktualisieren eines Artikels
+    fun artikelAktualisieren(artikel: ArtikelEntitaet) {
+        Timber.d("ArtikelViewModel: Versuche Artikel zu aktualisieren: ${artikel.name}")
+        viewModelScope.launch {
+            try {
+                artikelRepository.artikelAktualisieren(artikel)
+                Timber.d("ArtikelViewModel: Artikel ${artikel.name} lokal aktualisiert.")
+            } catch (e: Exception) {
+                Timber.e(e, "ArtikelViewModel: Fehler beim lokalen Aktualisieren des Artikels: ${e.message}")
+            }
         }
     }
 
     // Funktion zum Markieren eines Artikels zur Löschung (Soft Delete)
-    // WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
-    fun artikelZurLoeschungVormerken(artikel: ArtikelEntitaet) { // Name der ViewModel-Methode ist deutsch und beschreibend
+    fun artikelLoeschen(artikel: ArtikelEntitaet) {
+        Timber.d("ArtikelViewModel: Versuche Artikel ${artikel.name} zur Löschung vorzumerken.")
         viewModelScope.launch {
-            artikelRepository.markArtikelForDeletion(artikel) // Name der Repository-Methode ist deutsch
-            Timber.d("Artikel ${artikel.name} zur Loeschung vorgemerkt über ViewModel.")
+            try {
+                artikelRepository.artikelLoeschen(artikel) // KORRIGIERT: Aufruf der korrekten Methode
+                Timber.d("ArtikelViewModel: Artikel ${artikel.name} lokal zur Löschung vorgemerkt.")
+            } catch (e: Exception) {
+                Timber.e(e, "ArtikelViewModel: Fehler beim lokalen Vormerken des Artikels zur Löschung: ${e.message}")
+            }
         }
     }
 
-    // Funktion zum Umschalten des Abgehakt-Status
-    // WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
-    fun toggleArtikelAbgehaktStatus(artikelId: String, abgehakt: Boolean) { // Name der ViewModel-Methode ist deutsch
-        viewModelScope.launch {
-            artikelRepository.toggleArtikelAbgehakt(artikelId, abgehakt) // Name der Repository-Methode ist deutsch
-        }
-    }
-
-    // Exponiert Artikel für eine bestimmte Liste
-    fun getArtikelFuerListe(listenId: String): Flow<List<ArtikelEntitaet>> {
-        return artikelRepository.getArtikelFuerListe(listenId)
-    }
-
-    fun getNichtAbgehakteArtikelFuerListe(listenId: String): Flow<List<ArtikelEntitaet>> {
-        return artikelRepository.getNichtAbgehakteArtikelFuerListe(listenId)
-    }
-
-    // ENTFERNT: getNichtAbgehakteArtikelFuerListeUndGeschaeft, da die zugehörige Repository-Methode entfernt wurde.
-    // Die Logik für die Filterung nach Geschäft muss nun in diesem ViewModel selbst oder einem Service
-    // implementiert werden, indem die Produkt-ID des Artikels und die ProduktGeschaeftVerbindungEntitaet verwendet werden.
-    /*
-    fun getNichtAbgehakteArtikelFuerListeUndGeschaeft(listenId: String, geschaeftId: String): Flow<List<ArtikelEntitaet>> {
-        return artikelRepository.getNichtAbgehakteArtikelFuerListeUndGeschaeft(listenId, geschaeftId)
-    }
-    */
-
-    // Laden eines Artikels per ID
+    // Exponiert einen Artikel nach ID
     fun getArtikelById(artikelId: String): Flow<ArtikelEntitaet?> {
         return artikelRepository.getArtikelById(artikelId)
     }
 
     // Funktion zum manuellen Auslösen der Synchronisation
-    fun syncArtikelDaten() { // Name der ViewModel-Methode ist deutsch
+    fun syncArtikelDaten() {
         viewModelScope.launch {
-            artikelRepository.syncArtikelDaten() // Name der Repository-Methode ist deutsch
+            artikelRepository.syncArtikelDaten()
             Timber.d("ArtikelViewModel: Artikel-Synchronisation ausgelöst.")
         }
     }

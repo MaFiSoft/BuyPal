@@ -1,5 +1,5 @@
 // app/build.gradle.kts
-// Stand: 2025-05-29_14:00 (Angepasst an die neuesten stabilen Versionen)
+// Stand: 2025-06-05_09:55:00 (Hinzugefügt: kotlin-noarg Plugin für Firestore-Deserialisierung)
 
 plugins {
     id("com.android.application")
@@ -10,6 +10,12 @@ plugins {
 
     id("com.google.dagger.hilt.android") // Für Hilt
     id("kotlin-kapt") // Für Kapt (Annotation Processing, oft noch für Hilt-Compiler benötigt)
+    id("org.jetbrains.kotlin.plugin.noarg") // HINZUGEFÜGT: Für das kotlin-noarg Plugin
+}
+
+// HINZUGEFÜGT: Konfiguration für das kotlin-noarg Plugin
+noArg {
+    annotation("androidx.room.Entity") // Anwenden des No-Arg-Konstruktors auf alle Room @Entity-Klassen
 }
 
 android {
@@ -67,19 +73,18 @@ ksp {
 
 dependencies {
     // AndroidX Core
-    implementation("androidx.core:core-ktx:1.13.1") // Stabile Version, 1.16.0 ist aktuell Alpha/Beta
+    implementation("androidx.core:core-ktx:1.13.1")
 
     // ConstraintLayout (kann entfernt werden, wenn nicht aktiv genutzt)
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4") // Stabile Version, 2.2.1 ist Beta
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
     // Jetpack Compose - Core (BOM managed Versions)
-    // Verwenden Sie die neueste STABILE BOM-Version, um Kompatibilität zu gewährleisten
-    implementation(platform("androidx.compose:compose-bom:2024.06.00")) // <-- AKTUALISIERT auf eine stabile Version
+    implementation(platform("androidx.compose:compose-bom:2024.06.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.activity:activity-compose:1.9.0") // Stabile Version
+    implementation("androidx.activity:activity-compose:1.9.0")
 
     // Lifecycle ViewModel (für ViewModels in Composables)
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
@@ -99,16 +104,15 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2024.06.00")) // <-- AKTUALISIERT, muss mit BOM übereinstimmen
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.06.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     // Firebase SDKs
-    // WICHTIG: Verwenden Sie die neueste STABILE Firebase BOM-Version!
-    implementation(platform("com.google.firebase:firebase-bom:33.0.0")) // <-- AKTUALISIERT auf eine neuere stabile BOM-Version
+    implementation(platform("com.google.firebase:firebase-bom:33.0.0"))
     implementation("com.google.firebase:firebase-firestore-ktx")
-    implementation("com.google.firebase:firebase-auth-ktx") // <-- DIESE IST DER SCHLÜSSEL!
+    implementation("com.google.firebase:firebase-auth-ktx")
 
     // GSON
     implementation("com.google.code.gson:gson:2.10.1")
@@ -123,10 +127,8 @@ dependencies {
     // Hilt-Abhängigkeiten
     implementation("com.google.dagger:hilt-android:2.48")
     kapt("com.google.dagger:hilt-android-compiler:2.48")
-    // Sicherstellen, dass diese Version mit Hilt 2.48 kompatibel ist
-    // Die offizielle Empfehlung ist, hilt-compiler auf die gleiche Version wie die Hilt-Bibliothek zu setzen
-    kapt("androidx.hilt:hilt-compiler:1.2.0") // Hilt compiler für AndroidX
+    kapt("androidx.hilt:hilt-compiler:1.2.0")
 
-    // Hilt-Integration für Compose ViewModels (gut, dass Sie die hinzugefügt haben!)
+    // Hilt-Integration für Compose ViewModels
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 }

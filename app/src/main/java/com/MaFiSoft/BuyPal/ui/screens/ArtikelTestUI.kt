@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/ArtikelTestUI.kt
-// Stand: 2025-06-02_02:00:00 (KORRIGIERT: Aufrufe der ViewModel-Methoden auf Deutsch)
+// Stand: 2025-06-03_15:15:00, Codezeilen: 100
 
 package com.MaFiSoft.BuyPal.ui.screens
 
@@ -24,7 +24,7 @@ fun ArtikelTestUI(artikelViewModel: ArtikelViewModel) {
     var artikelName by remember { mutableStateOf("") }
     var artikelMenge by remember { mutableStateOf("1.0") }
     var artikelEinheit by remember { mutableStateOf("") }
-    var artikelListenId by remember { mutableStateOf("test_list_id") } // Beispielwert für Listen-ID
+    var artikelEinkaufslisteId by remember { mutableStateOf("test_einkaufsliste_id") }
 
     val alleArtikel by artikelViewModel.alleArtikel.collectAsState(initial = emptyList())
     val coroutineScope = rememberCoroutineScope()
@@ -52,24 +52,30 @@ fun ArtikelTestUI(artikelViewModel: ArtikelViewModel) {
             onValueChange = { artikelEinheit = it },
             label = { Text("Einheit") }
         )
+        Spacer(modifier = Modifier.height(8.dp))
+        TextField(
+            value = artikelEinkaufslisteId,
+            onValueChange = { artikelEinkaufslisteId = it },
+            label = { Text("Einkaufsliste ID") }
+        )
         Spacer(modifier = Modifier.height(16.dp))
 
         Button(onClick = {
             val neuerArtikel = ArtikelEntitaet(
-                artikelId = UUID.randomUUID().toString(), // Generiere eine eindeutige ID
+                artikelId = UUID.randomUUID().toString(),
                 name = artikelName,
                 menge = artikelMenge.toDoubleOrNull() ?: 1.0,
                 einheit = artikelEinheit,
-                listenId = artikelListenId,
+                einkaufslisteId = artikelEinkaufslisteId,
                 erstellungszeitpunkt = Date()
             )
             coroutineScope.launch {
-                // Korrigiert: Aufruf der ViewModel-Methode "artikelSpeichern"
                 artikelViewModel.artikelSpeichern(neuerArtikel)
             }
             artikelName = ""
             artikelMenge = "1.0"
             artikelEinheit = ""
+            artikelEinkaufslisteId = "test_einkaufsliste_id"
         }) {
             Text("Artikel speichern (Lokal)")
         }
@@ -78,7 +84,6 @@ fun ArtikelTestUI(artikelViewModel: ArtikelViewModel) {
 
         Button(onClick = {
             coroutineScope.launch {
-                // Korrigiert: Aufruf der ViewModel-Methode "syncArtikelDaten"
                 artikelViewModel.syncArtikelDaten()
             }
         }) {
@@ -90,19 +95,17 @@ fun ArtikelTestUI(artikelViewModel: ArtikelViewModel) {
         LazyColumn {
             items(alleArtikel, key = { artikel -> artikel.artikelId }) { artikel ->
                 Column {
-                    Text("ID: ${artikel.artikelId.take(4)}..., Name: ${artikel.name}, Menge: ${artikel.menge}, Einheit: ${artikel.einheit}, Liste: ${artikel.listenId}")
+                    Text("ID: ${artikel.artikelId.take(4)}..., Name: ${artikel.name}, Menge: ${artikel.menge}, Einheit: ${artikel.einheit}, Einkaufsliste: ${artikel.einkaufslisteId}")
                     Button(
                         onClick = {
                             coroutineScope.launch {
-                                // Korrigiert: Aufruf der ViewModel-Methode "artikelZurLoeschungVormerken"
-                                // Dies ist der "Soft-Delete", der das Lösch-Flag setzt.
-                                artikelViewModel.artikelZurLoeschungVormerken(artikel)
+                                artikelViewModel.artikelLoeschen(artikel)
                                 Timber.d("Artikel ${artikel.name} zur Loeschung vorgemerkt.")
                             }
                         },
-                        enabled = !artikel.istLoeschungVorgemerkt // Button deaktivieren, wenn bereits vorgemerkt
+                        enabled = !artikel.istLoeschungVorgemerkt
                     ) {
-                        Text("Zur Löschung vormerken")
+                        Text("Löschen")
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }

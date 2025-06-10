@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/KategorieRepository.kt
-// Stand: 2025-06-02_02:00:00 (KORRIGIERT: Stand und Kommentare aktualisiert)
+// Stand: 2025-06-07_22:40:00, Codezeilen: 38
 
 package com.MaFiSoft.BuyPal.repository
 
@@ -9,19 +9,57 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Schnittstelle fuer das Kategorie-Repository.
  * Definiert die Operationen zum Abrufen und Verwalten von Kategoriedaten.
- * Angepasst an den Goldstandard von BenutzerRepository und ArtikelRepository.
+ * Angepasst an den Goldstandard von BenutzerRepository.
  */
 interface KategorieRepository {
+    /**
+     * Speichert eine neue Kategorie oder aktualisiert eine bestehende in der lokalen Room-Datenbank.
+     * Markiert die Kategorie fuer die Synchronisation mit der Cloud.
+     * Dies ist der "Room-first"-Ansatz.
+     *
+     * @param kategorie Die zu speichernde oder zu aktualisierende Kategorie-Entitaet.
+     */
+    suspend fun kategorieSpeichern(kategorie: KategorieEntitaet)
 
-    // Room-Operationen (Datenquelle für die UI)
-    fun getAllKategorienFlow(): Flow<List<KategorieEntitaet>>
-    fun getKategorieByIdFlow(kategorieId: String): Flow<KategorieEntitaet?>
+    /**
+     * Ruft eine einzelne Kategorie anhand ihrer eindeutigen ID aus der lokalen Datenbank ab.
+     * Liefert einen Flow zur Echtzeitbeobachtung von Aenderungen.
+     *
+     * @param kategorieId Die ID der abzurufenden Kategorie.
+     * @return Ein Flow, der die Kategorie-Entitaet (oder null) emittiert.
+     */
+    fun getKategorieById(kategorieId: String): Flow<KategorieEntitaet?>
 
-    // Methoden zum Speichern, Aktualisieren, Löschen (Room-first, setzt Sync-Flags)
-    suspend fun kategorieSpeichern(kategorie: KategorieEntitaet) // Speichert/Aktualisiert in Room und markiert für Sync
-    suspend fun kategorieAktualisieren(kategorie: KategorieEntitaet) // Aktualisiert in Room und markiert für Sync
-    suspend fun kategorieLoeschen(kategorie: KategorieEntitaet) // Setzt Löschungs-Flag und markiert für Sync (Soft Delete)
+    /**
+     * Ruft alle nicht zur Loeschung vorgemerkten Kategorien aus der lokalen Datenbank ab.
+     * Liefert einen Flow zur Echtzeitbeobachtung von Aenderungen in der Liste.
+     *
+     * @return Ein Flow, der eine Liste von Kategorie-Entitaeten emittiert.
+     */
+    fun getAllKategorien(): Flow<List<KategorieEntitaet>>
 
-    // Kombinierte Sync-Funktion für den SyncManager
-    suspend fun syncKategorienMitFirestore() // Ruft Push- und Pull-Operationen auf
+    /**
+     * Markiert eine Kategorie in der lokalen Datenbank zur Loeschung (Soft Delete).
+     * Setzt das "istLoeschungVorgemerkt"-Flag und markiert die Kategorie fuer die Synchronisation.
+     * Die tatsaechliche Loeschung in der Cloud und der lokalen Datenbank erfolgt erst nach der Synchronisation.
+     *
+     * @param kategorie Die Kategorie-Entitaet, die zur Loeschung vorgemerkt werden soll.
+     */
+    suspend fun markKategorieForDeletion(kategorie: KategorieEntitaet)
+
+    /**
+     * Loescht eine Kategorie endgueltig aus der lokalen Datenbank.
+     * Diese Methode wird typischerweise nur nach erfolgreicher Synchronisation der Loeschung
+     * mit der Cloud-Datenbank aufgerufen.
+     *
+     * @param kategorieId Die ID der endgueltig zu loeschenden Kategorie.
+     */
+    suspend fun loescheKategorie(kategorieId: String)
+
+    /**
+     * Startet den Synchronisationsprozess fuer Kategoriedaten zwischen der lokalen
+     * Room-Datenbank und Firestore (Cloud-Datenbank).
+     * Diese Funktion wird vom SyncManager aufgerufen.
+     */
+    suspend fun syncKategorieDaten()
 }

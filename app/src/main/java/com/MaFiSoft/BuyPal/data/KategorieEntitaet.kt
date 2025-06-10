@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/KategorieEntitaet.kt
-// Stand: 2025-06-02_00:05:00
+// Stand: 2025-06-07_22:30:00, Codezeilen: 39
 
 package com.MaFiSoft.BuyPal.data
 
@@ -7,6 +7,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
+import com.google.firebase.firestore.Exclude // Import für @Exclude
 import java.util.Date
 
 /**
@@ -30,8 +31,8 @@ import java.util.Date
 data class KategorieEntitaet(
     @PrimaryKey // Primärschlüssel für Room
     @DocumentId // Kennzeichnet Feld als Firestore-Dokument-ID
-    val kategorieId: String = "", // String-ID, konsistent mit Benutzer und Artikel
-    val name: String = "",
+    val kategorieId: String, // KORRIGIERT: Standardwert "" entfernt, um Konsistenz mit BenutzerEntitaet zu gewährleisten
+    val name: String, // KORRIGIERT: Standardwert "" entfernt, um Konsistenz mit BenutzerEntitaet zu gewährleisten
     val beschreibung: String? = null,
     val bildUrl: String? = null,
     val elternKategorieId: String? = null, // Auch String, um Konsistenz zu wahren, da es eine Referenz auf eine Kategorie-ID ist
@@ -41,6 +42,8 @@ data class KategorieEntitaet(
     val erstellungszeitpunkt: Date? = null,
     // Felder für Room-first und Sync-Logik (Goldstandard)
     val zuletztGeaendert: Date? = null, // Zeitstempel fuer Last-Write-Wins (wird manuell/automatisch gesetzt)
+    @get:Exclude // KORRIGIERT: @get:Exclude verwenden, um Feld von Firestore-Serialisierung auszuschließen
     val istLokalGeaendert: Boolean = false, // Flag, um zu wissen, ob Sync noetig ist
+    @get:Exclude // KORRIGIERT: @get:Exclude verwenden, um Feld von Firestore-Serialisierung auszuschließen
     val istLoeschungVorgemerkt: Boolean = false // Flag fuer Soft-Delete vor Sync
 )

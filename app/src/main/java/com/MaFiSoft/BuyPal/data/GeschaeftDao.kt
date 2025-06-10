@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/GeschaeftDao.kt
-// Stand: 2025-06-02_22:00:26
+// Stand: 2025-06-05_23:36:00, Codezeilen: 48
 
 package com.MaFiSoft.BuyPal.data
 
@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 
 /**
  * Data Access Object (DAO) fuer die GeschaeftEntitaet.
- * Angepasst an den Goldstandard von BenutzerDao und ArtikelDao.
+ * Definiert Methoden fuer den Zugriff auf Geschaefts-Daten in der Room-Datenbank.
  */
 @Dao
 interface GeschaeftDao {
@@ -22,26 +22,28 @@ interface GeschaeftDao {
     @Update
     suspend fun geschaeftAktualisieren(geschaeft: GeschaeftEntitaet)
 
-    @Query("SELECT * FROM geschaefte WHERE geschaeftId = :geschaeftId")
+    @Query("SELECT * FROM geschaeft WHERE geschaeftId = :geschaeftId")
     fun getGeschaeftById(geschaeftId: String): Flow<GeschaeftEntitaet?>
 
-    // Angepasst an den Goldstandard: Filtert gelöschte Geschäfte heraus
-    @Query("SELECT * FROM geschaefte WHERE istLoeschungVorgemerkt = 0 ORDER BY name ASC")
+    // Holt alle aktiven Geschaefte (nicht zur Löschung vorgemerkt)
+    @Query("SELECT * FROM geschaeft WHERE istLoeschungVorgemerkt = 0 ORDER BY name ASC")
     fun getAllGeschaefte(): Flow<List<GeschaeftEntitaet>>
 
-    // NEU: Holt ALLE Geschäfte, auch die zur Löschung vorgemerkten (für interne Sync-Logik benötigt)
-    @Query("SELECT * FROM geschaefte")
+    // Holt ALLE Geschaefte, auch die zur Löschung vorgemerkten (für interne Sync-Logik benötigt)
+    @Query("SELECT * FROM geschaeft")
     suspend fun getAllGeschaefteIncludingMarkedForDeletion(): List<GeschaeftEntitaet>
 
-    // Methoden zum Abrufen von unsynchronisierten Daten (analog BenutzerDao)
-    @Query("SELECT * FROM geschaefte WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")
+    // Methoden zum Abrufen von unsynchronisierten Daten
+    @Query("SELECT * FROM geschaeft WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")
     suspend fun getUnsynchronisierteGeschaefte(): List<GeschaeftEntitaet>
 
-    // Methode zum Abrufen von Geschäften, die zur Löschung vorgemerkt sind
-    @Query("SELECT * FROM geschaefte WHERE istLoeschungVorgemerkt = 1")
+    // Methode zum Abrufen von Geschaefte, die zur Löschung vorgemerkt sind
+    @Query("SELECT * FROM geschaeft WHERE istLoeschungVorgemerkt = 1")
     suspend fun getGeschaefteFuerLoeschung(): List<GeschaeftEntitaet>
 
-    // Direkte Löschung (typischerweise nur vom SyncManager oder für Bereinigung)
-    @Query("DELETE FROM geschaefte WHERE geschaeftId = :geschaeftId")
+    @Query("DELETE FROM geschaeft WHERE geschaeftId = :geschaeftId")
     suspend fun deleteGeschaeftById(geschaeftId: String)
+
+    @Query("DELETE FROM geschaeft")
+    suspend fun deleteAllGeschaefte()
 }

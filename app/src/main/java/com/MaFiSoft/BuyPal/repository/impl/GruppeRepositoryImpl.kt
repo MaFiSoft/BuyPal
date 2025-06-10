@@ -1,5 +1,5 @@
-// com/MaFiSoft/BuyPal/repository/impl/GruppeRepositoryImpl.kt
-// Stand: 2025-06-02_22:50:00
+// app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/GruppeRepositoryImpl.kt
+// Stand: 2025-06-10_20:15:00, Codezeilen: 180
 
 package com.MaFiSoft.BuyPal.repository.impl
 
@@ -10,172 +10,208 @@ import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.util.Date
 import javax.inject.Inject
-import com.google.gson.Gson // Für JSON-Parsing
+import javax.inject.Singleton
 
 /**
- * Implementierung des Gruppen-Repository.
+ * Implementierung des Gruppe-Repository.
  * Verwaltet Gruppendaten lokal (Room) und in der Cloud (Firestore) nach dem Room-first-Ansatz.
+ * Angepasst an den Goldstandard von BenutzerRepositoryImpl.
  */
+@Singleton
 class GruppeRepositoryImpl @Inject constructor(
     private val gruppeDao: GruppeDao,
     private val firestore: FirebaseFirestore
 ) : GruppeRepository {
 
     private val ioScope = CoroutineScope(Dispatchers.IO)
-    private val firestoreCollection = firestore.collection("gruppen")
-    private val gson = Gson() // Für das Parsen der Mitglieder-IDs
+    private val firestoreCollection = firestore.collection("gruppen") // Firestore-Sammlung fuer Gruppen
 
-    // Der direkte Firestore Snapshot Listener im init-Block wird entfernt.
-    // Der Sync wird stattdessen manuell über syncGruppenDaten() oder
-    // durch einen zentralen SyncManager ausgelöst.
-    /*
+    // Init-Block: Stellt sicher, dass initial Gruppen aus Firestore in Room sind (Pull-Sync).
     init {
-        // ... (alter Code, der entfernt wird)
-    }
-    */
-
-    override fun getGruppeById(gruppenId: String): Flow<GruppeEntitaet?> {
-        Timber.d("GruppeRepositoryImpl: Abrufen Gruppe nach ID: $gruppenId")
-        return gruppeDao.getGruppeById(gruppenId)
-    }
-
-    // Angepasste Logik für getGruppenFuerBenutzer:
-    // Ruft alle aktiven Gruppen aus Room ab und filtert dann in Kotlin
-    // nach Inhaber oder Mitgliedschaft in mitgliederIds.
-    override fun getAlleAktivenGruppen(): Flow<List<GruppeEntitaet>> {
-        Timber.d("GruppeRepositoryImpl: Abrufen aller aktiven Gruppen.")
-        return gruppeDao.getAllAktiveGruppen()
-    }
-
-    // Eine Hilfsfunktion, um Gruppen nach Benutzer zu filtern, die auf dem Flow der aktiven Gruppen operiert
-    fun filterGruppenFuerBenutzer(benutzerId: String): Flow<List<GruppeEntitaet>> {
-        return getAlleAktivenGruppen().map { gruppen ->
-            gruppen.filter { gruppe ->
-                gruppe.inhaberId == benutzerId || gruppe.mitgliederIds.contains(benutzerId)
-            }
+        ioScope.launch {
+            Timber.d("Initialer Sync: Starte Pull-Synchronisation der Gruppendaten (aus Init-Block).")
+            performPullSyncGruppe()
+            Timber.d("Initialer Sync: Pull-Synchronisation der Gruppendaten abgeschlossen (aus Init-Block).")
         }
     }
 
+    // --- Lokale Datenbank-Operationen (Room) ---
+
+    override fun getGruppeById(gruppeId: String): Flow<GruppeEntitaet?> {
+        Timber.d("GruppeRepositoryImpl: Abrufen Gruppe nach ID: $gruppeId")
+        return gruppeDao.getGruppeById(gruppeId)
+    }
+
+    override fun getAllGruppen(): Flow<List<GruppeEntitaet>> {
+        Timber.d("GruppeRepositoryImpl: Abrufen aller aktiven Gruppen.")
+        return gruppeDao.getAllGruppen()
+    }
 
     override suspend fun gruppeSpeichern(gruppe: GruppeEntitaet) {
-        Timber.d("GruppeRepositoryImpl: Versuche Gruppe lokal zu speichern/aktualisieren: ${gruppe.name}")
+        Timber.d("GruppeRepositoryImpl: Versuche Gruppe lokal zu speichern/aktualisieren: ${gruppe.name} (ID: ${gruppe.gruppeId})")
         val gruppeMitTimestamp = gruppe.copy(
             zuletztGeaendert = Date(),
-            istLokalGeaendert = true
+            istLokalGeaendert = true // Markieren fuer spaeteren Sync
         )
         gruppeDao.gruppeEinfuegen(gruppeMitTimestamp)
-        Timber.d("GruppeRepositoryImpl: Gruppe lokal gespeichert/aktualisiert: ${gruppeMitTimestamp.name}")
+        Timber.d("GruppeRepositoryImpl: Gruppe ${gruppeMitTimestamp.name} (ID: ${gruppeMitTimestamp.gruppeId}) lokal gespeichert/aktualisiert. istLokalGeaendert: ${gruppeMitTimestamp.istLokalGeaendert}")
     }
 
-    // Aktualisieren mit Room-first-Logik
-    override suspend fun gruppeAktualisieren(gruppe: GruppeEntitaet) {
-        gruppeSpeichern(gruppe) // Ruft die Methode auf, die die Flags korrekt setzt und upsertet
-        Timber.d("GruppeRepositoryImpl: Gruppe aktualisiert durch 'gruppeSpeichern' Logik: ${gruppe.gruppenId}")
-    }
-
-    // NEU: Markieren zur Löschung (Soft Delete)
     override suspend fun markGruppeForDeletion(gruppe: GruppeEntitaet) {
-        Timber.d("GruppeRepositoryImpl: Markiere Gruppe zur Löschung: ${gruppe.name}")
+        Timber.d("GruppeRepositoryImpl: Markiere Gruppe zur Loeschung: ${gruppe.name} (ID: ${gruppe.gruppeId})")
         val gruppeLoeschenVorgemerkt = gruppe.copy(
             istLoeschungVorgemerkt = true,
             zuletztGeaendert = Date(),
-            istLokalGeaendert = true
+            istLokalGeaendert = true // Auch eine Loeschung ist eine lokale Aenderung, die gesynct werden muss
         )
         gruppeDao.gruppeAktualisieren(gruppeLoeschenVorgemerkt)
-        Timber.d("GruppeRepositoryImpl: Gruppe zur Löschung vorgemerkt: ${gruppeLoeschenVorgemerkt.name}")
+        Timber.d("GruppeRepositoryImpl: Gruppe ${gruppeLoeschenVorgemerkt.name} (ID: ${gruppeLoeschenVorgemerkt.gruppeId}) lokal zur Loeschung vorgemerkt. istLoeschungVorgemerkt: ${gruppeLoeschenVorgemerkt.istLoeschungVorgemerkt}")
     }
 
-    // NEU: Endgültiges Löschen (normalerweise nur vom SyncManager aufgerufen)
-    override suspend fun loescheGruppe(gruppenId: String) {
-        Timber.d("GruppeRepositoryImpl: Gruppe endgültig löschen (lokal): $gruppenId")
+    override suspend fun loescheGruppe(gruppeId: String) {
+        Timber.d("GruppeRepositoryImpl: Gruppe endgueltig loeschen (lokal): $gruppeId")
         try {
-            gruppeDao.deleteGruppeById(gruppenId)
-            Timber.d("GruppeRepositoryImpl: Gruppe $gruppenId erfolgreich lokal gelöscht.")
+            // Erst aus Firestore loeschen (optional, je nach Sync-Strategie, aber hier der Vollstaendigkeit halber)
+            // Normalerweise wuerde dies vom SyncManager nach erfolgreichem Push der Loeschung uebernommen.
+            firestoreCollection.document(gruppeId).delete().await()
+            // Dann lokal loeschen
+            gruppeDao.deleteGruppeById(gruppeId)
+            Timber.d("GruppeRepositoryImpl: Gruppe $gruppeId erfolgreich aus Firestore und lokal geloescht.")
         } catch (e: Exception) {
-            Timber.e(e, "GruppeRepositoryImpl: Fehler beim endgültigen Löschen von Gruppe $gruppenId.")
+            Timber.e(e, "GruppeRepositoryImpl: Fehler beim endgueltigen Loeschen von Gruppe $gruppeId aus Firestore.")
         }
     }
 
     // --- Synchronisations-Operationen (Room <-> Firestore) ---
 
-    // Dies ist die einzige Methode, die den Sync initiiert
     override suspend fun syncGruppenDaten() {
-        Timber.d("GruppeRepositoryImpl: Starte Synchronisation der Gruppendaten.")
+        Timber.d("GruppeRepositoryImpl: Starte manuelle Synchronisation der Gruppendaten.")
 
-        // 1. Lokale Änderungen zu Firestore hochladen
-        val unsynchronisierteGruppen = gruppeDao.getUnsynchronisierteGruppen()
-        for (gruppe in unsynchronisierteGruppen) {
-            try {
-                firestoreCollection.document(gruppe.gruppenId).set(gruppe).await()
-                // Nach erfolgreichem Upload lokale Flags zurücksetzen
-                val gesyncteGruppe = gruppe.copy(istLokalGeaendert = false)
-                gruppeDao.gruppeAktualisieren(gesyncteGruppe)
-                Timber.d("GruppeRepositoryImpl: Gruppe ${gruppe.name} erfolgreich mit Firestore synchronisiert (Upload).")
-            } catch (e: Exception) {
-                Timber.e(e, "GruppeRepositoryImpl: Fehler beim Hochladen von Gruppe ${gruppe.name} zu Firestore.")
-            }
-        }
-
-        // 2. Zur Löschung vorgemerkte Gruppen aus Firestore löschen und lokal entfernen
+        // 1. Lokale Loeschungen zu Firestore pushen
         val gruppenFuerLoeschung = gruppeDao.getGruppenFuerLoeschung()
         for (gruppe in gruppenFuerLoeschung) {
             try {
-                firestoreCollection.document(gruppe.gruppenId).delete().await()
-                gruppeDao.deleteGruppeById(gruppe.gruppenId)
-                Timber.d("GruppeRepositoryImpl: Gruppe ${gruppe.name} erfolgreich aus Firestore und lokal gelöscht.")
+                Timber.d("Sync: Push Loeschung fuer Gruppe: ${gruppe.name} (ID: ${gruppe.gruppeId})")
+                firestoreCollection.document(gruppe.gruppeId).delete().await()
+                gruppeDao.deleteGruppeById(gruppe.gruppeId)
+                Timber.d("Sync: Gruppe ${gruppe.name} (ID: ${gruppe.gruppeId}) erfolgreich aus Firestore und lokal geloescht.")
             } catch (e: Exception) {
-                Timber.e(e, "GruppeRepositoryImpl: Fehler beim Löschen von Gruppe ${gruppe.name} aus Firestore.")
+                Timber.e(e, "Sync: Fehler beim Loeschen von Gruppe ${gruppe.name} (ID: ${gruppe.gruppeId}) aus Firestore.")
+                // Fehlerbehandlung: Gruppe bleibt zur Loeschung vorgemerkt, wird spaeter erneut versucht
+            }
+        }
+
+        // 2. Lokale Hinzufuegungen/Aenderungen zu Firestore pushen
+        val unsynchronisierteGruppen = gruppeDao.getUnsynchronisierteGruppen()
+        for (gruppe in unsynchronisierteGruppen) {
+            try {
+                // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false FÜR FIRESTORE, da der Datensatz jetzt synchronisiert wird
+                val gruppeFuerFirestore = gruppe.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
+                Timber.d("Sync: Push Upload/Update fuer Gruppe: ${gruppe.name} (ID: ${gruppe.gruppeId})")
+                firestoreCollection.document(gruppe.gruppeId).set(gruppeFuerFirestore).await()
+                // Nach erfolgreichem Upload lokale Flags zuruecksetzen
+                gruppeDao.gruppeAktualisieren(gruppe.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                Timber.d("Sync: Gruppe ${gruppe.name} (ID: ${gruppe.gruppeId}) erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
+            } catch (e: Exception) {
+                Timber.e(e, "Sync: Fehler beim Hochladen von Gruppe ${gruppe.name} (ID: ${gruppe.gruppeId}) zu Firestore.")
+                // Fehlerbehandlung: Gruppe bleibt als lokal geaendert markiert, wird spaeter erneut versucht
             }
         }
 
         // 3. Firestore-Daten herunterladen und lokale Datenbank aktualisieren (Last-Write-Wins)
+        Timber.d("Sync: Starte Pull-Phase der Synchronisation fuer Gruppendaten.")
+        performPullSyncGruppe() // Ausgelagert in separate Funktion
+        Timber.d("Sync: Synchronisation der Gruppendaten abgeschlossen.")
+    }
+
+    // Ausgelagerte Funktion fuer den Pull-Sync-Teil mit detaillierterem Logging
+    private suspend fun performPullSyncGruppe() {
         try {
             val firestoreSnapshot = firestoreCollection.get().await()
-            val firestoreGruppenList = firestoreSnapshot.toObjects(GruppeEntitaet::class.java)
+            val firestoreGruppeList = firestoreSnapshot.toObjects(GruppeEntitaet::class.java)
+            Timber.d("Sync Pull: ${firestoreGruppeList.size} Gruppen von Firestore abgerufen.")
 
             val allLocalGruppen = gruppeDao.getAllGruppenIncludingMarkedForDeletion()
-            val localGruppenMap = allLocalGruppen.associateBy { it.gruppenId }
+            val localGruppeMap = allLocalGruppen.associateBy { it.gruppeId }
+            Timber.d("Sync Pull: ${allLocalGruppen.size} Gruppen lokal gefunden (inkl. geloeschter/geaenderter).")
 
-            for (firestoreGruppe in firestoreGruppenList) {
-                val lokalerGruppe = localGruppenMap[firestoreGruppe.gruppenId]
+            for (firestoreGruppe in firestoreGruppeList) {
+                val lokaleGruppe = localGruppeMap[firestoreGruppe.gruppeId]
+                Timber.d("Sync Pull: Verarbeite Firestore-Gruppe: ${firestoreGruppe.name} (ID: ${firestoreGruppe.gruppeId})")
 
-                if (lokalerGruppe == null) {
-                    // Gruppe existiert nur in Firestore, lokal einfügen
-                    gruppeDao.gruppeEinfuegen(firestoreGruppe.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
-                    Timber.d("GruppeRepositoryImpl: Neue Gruppe ${firestoreGruppe.name} von Firestore lokal hinzugefügt.")
+                if (lokaleGruppe == null) {
+                    // Gruppe existiert nur in Firestore, lokal einfuegen
+                    // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false, da es von Firestore kommt und synchronisiert ist
+                    val newGruppeInRoom = firestoreGruppe.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
+                    gruppeDao.gruppeEinfuegen(newGruppeInRoom)
+                    Timber.d("Sync Pull: NEUE Gruppe ${newGruppeInRoom.name} (ID: ${newGruppeInRoom.gruppeId}) von Firestore in Room HINZUGEFUEGT.")
                 } else {
-                    // Gruppe existiert in beiden, Last-Write-Wins anwenden
-                    if (firestoreGruppe.zuletztGeaendert != null && lokalerGruppe.zuletztGeaendert != null &&
-                        firestoreGruppe.zuletztGeaendert.after(lokalerGruppe.zuletztGeaendert) &&
-                        !lokalerGruppe.istLokalGeaendert) {
-                        // Firestore ist neuer und lokale Version ist nicht lokal geändert
-                        gruppeDao.gruppeAktualisieren(firestoreGruppe.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
-                        Timber.d("GruppeRepositoryImpl: Gruppe ${firestoreGruppe.name} von Firestore aktualisiert (Last-Write-Wins).")
-                    } else if (lokalerGruppe.istLokalGeaendert) {
-                        // Lokale Version ist neuer oder lokal geändert, überspringe das Herunterladen
-                        Timber.d("GruppeRepositoryImpl: Gruppe ${lokalerGruppe.name} lokal geändert, Firestore-Version ignoriert.")
+                    Timber.d("Sync Pull: Lokale Gruppe ${lokaleGruppe.name} (ID: ${lokaleGruppe.gruppeId}) gefunden. Lokal geaendert: ${lokaleGruppe.istLokalGeaendert}, Zur Loeschung vorgemerkt: ${lokaleGruppe.istLoeschungVorgemerkt}")
+
+                    // Prioritaeten der Konfliktloesung:
+                    // 1. Wenn lokal zur Loeschung vorgemerkt, lokale Version beibehalten (wird im Push geloescht)
+                    if (lokaleGruppe.istLoeschungVorgemerkt) {
+                        Timber.d("Sync Pull: Lokale Gruppe ${lokaleGruppe.name} ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert.")
+                        continue // Naechste Firestore-Gruppe verarbeiten
+                    }
+                    // 2. Wenn lokal geaendert, lokale Version beibehalten (wird im Push hochgeladen)
+                    if (lokaleGruppe.istLokalGeaendert) {
+                        Timber.d("Sync Pull: Lokale Gruppe ${lokaleGruppe.name} ist lokal geaendert. Pull-Version von Firestore wird ignoriert.")
+                        continue // Naechste Firestore-Gruppe verarbeiten
+                    }
+
+                    // 3. Wenn Firestore-Version zur Loeschung vorgemerkt ist, lokal loeschen (da lokale Version nicht geaendert ist und nicht zur Loeschung vorgemerkt)
+                    if (firestoreGruppe.istLoeschungVorgemerkt) {
+                        gruppeDao.deleteGruppeById(lokaleGruppe.gruppeId)
+                        Timber.d("Sync Pull: Gruppe ${lokaleGruppe.name} lokal GELOEscht, da in Firestore als geloescht markiert und lokale Version nicht veraendert.")
+                        continue // Naechste Firestore-Gruppe verarbeiten
+                    }
+
+                    // 4. Last-Write-Wins basierend auf Zeitstempel (wenn keine Konflikte nach Prioritaeten 1-3)
+                    val firestoreTimestamp = firestoreGruppe.zuletztGeaendert ?: firestoreGruppe.erstellungszeitpunkt
+                    val localTimestamp = lokaleGruppe.zuletztGeaendert ?: lokaleGruppe.erstellungszeitpunkt
+
+                    val isFirestoreNewer = when {
+                        firestoreTimestamp == null && localTimestamp == null -> false // Beide null, keine klare Entscheidung, lokale Version (die ja nicht geaendert ist) behalten
+                        firestoreTimestamp != null && localTimestamp == null -> true // Firestore hat Timestamp, lokal nicht, Firestore ist neuer
+                        firestoreTimestamp == null && localTimestamp != null -> false // Lokal hat Timestamp, Firestore nicht, lokal ist neuer
+                        firestoreTimestamp != null && localTimestamp != null -> firestoreTimestamp.after(localTimestamp) // Beide haben Timestamps, vergleichen
+                        else -> false // Sollte nicht passieren
+                    }
+
+                    if (isFirestoreNewer) {
+                        // Firestore ist neuer und lokale Version ist weder zur Loeschung vorgemerkt noch lokal geaendert (da durch 'continue' oben abgefangen)
+                        val updatedGruppe = firestoreGruppe.copy(
+                            istLokalGeaendert = false, // Ist jetzt synchronisiert
+                            istLoeschungVorgemerkt = false
+                        )
+                        gruppeDao.gruppeAktualisieren(updatedGruppe)
+                        Timber.d("Sync Pull: Gruppe ${updatedGruppe.name} (ID: ${updatedGruppe.gruppeId}) von Firestore in Room AKTUALISIERT (Firestore neuer).")
+                    } else {
+                        Timber.d("Sync Pull: Lokale Gruppe ${lokaleGruppe.name} (ID: ${lokaleGruppe.gruppeId}) ist aktueller oder gleich. KEINE AKTUALISIERUNG von Firestore.")
                     }
                 }
             }
-            // 4. Lokale Gruppen finden, die in Firestore nicht mehr existieren und lokal NICHT zur Löschung vorgemerkt sind
-            val firestoreGruppenIds = firestoreGruppenList.map { it.gruppenId }.toSet()
+
+            // 5. Lokale Gruppen finden, die in Firestore nicht mehr existieren und lokal NICHT zur Loeschung vorgemerkt sind
+            val firestoreGruppeIds = firestoreGruppeList.map { it.gruppeId }.toSet()
 
             for (localGruppe in allLocalGruppen) {
-                if (localGruppe.gruppenId.isNotEmpty() && !firestoreGruppenIds.contains(localGruppe.gruppenId) && !localGruppe.istLoeschungVorgemerkt) {
-                    gruppeDao.deleteGruppeById(localGruppe.gruppenId)
-                    Timber.d("Gruppe lokal geloescht, da nicht mehr in Firestore vorhanden: ${localGruppe.name}")
+                // Nur loeschen, wenn nicht in Firestore UND nicht zur Loeschung vorgemerkt UND nicht lokal geaendert
+                if (localGruppe.gruppeId.isNotEmpty() && !firestoreGruppeIds.contains(localGruppe.gruppeId) &&
+                    !localGruppe.istLoeschungVorgemerkt && !localGruppe.istLokalGeaendert) {
+                    gruppeDao.deleteGruppeById(localGruppe.gruppeId)
+                    Timber.d("Sync Pull: Lokale Gruppe ${localGruppe.name} (ID: ${localGruppe.gruppeId}) GELOEscht, da nicht mehr in Firestore vorhanden und lokal NICHT zur Loeschung vorgemerkt UND NICHT lokal geaendert war.")
                 }
             }
-            Timber.d("GruppeRepositoryImpl: Synchronisation der Gruppendaten abgeschlossen.")
+            Timber.d("Sync Pull: Pull-Synchronisation der Gruppendaten abgeschlossen.")
         } catch (e: Exception) {
-            Timber.e(e, "GruppeRepositoryImpl: Fehler beim Herunterladen und Synchronisieren von Gruppen von Firestore.")
+            Timber.e(e, "Sync Pull: FEHLER beim Herunterladen und Synchronisieren von Gruppen von Firestore: ${e.message}")
         }
     }
 }

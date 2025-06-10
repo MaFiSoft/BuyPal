@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/presentation/viewmodel/KategorieViewModel.kt
-// Stand: 2025-06-02_02:00:00 (KORRIGIERT: Keine direkten Sync-Aufrufe nach CUD-Operationen)
+// Stand: 2025-06-07_23:10:00 (KORRIGIERT: Anpassung an neues Repository-Interface)
 
 package com.MaFiSoft.BuyPal.presentation.viewmodel
 
@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.MaFiSoft.BuyPal.data.KategorieEntitaet
 import com.MaFiSoft.BuyPal.repository.KategorieRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -21,10 +22,10 @@ class KategorieViewModel @Inject constructor(
     private val kategorieRepository: KategorieRepository
 ) : ViewModel() {
 
-    // Alle Kategorien als StateFlow, um sie in der UI zu beobachten
+    // Exponiert alle Kategorien als StateFlow fuer die UI (nicht zur Loeschung vorgemerkt)
     val alleKategorien: StateFlow<List<KategorieEntitaet>> =
-        kategorieRepository.getAllKategorienFlow()
-            .map { it.sortedBy { kategorie -> kategorie.name } } // Optional: Sortierung hinzufügen
+        kategorieRepository.getAllKategorien() // ANPASSUNG: Methodennamen des Repositorys
+            .map { it.sortedBy { kategorie -> kategorie.name } } // Optional: Sortierung hinzufuegen
             .stateIn(
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5000), // Bleibt aktiv, solange die UI sichtbar ist
@@ -34,68 +35,43 @@ class KategorieViewModel @Inject constructor(
     /**
      * Ruft eine einzelne Kategorie anhand ihrer ID ab.
      */
-    fun getKategorieById(kategorieId: String): StateFlow<KategorieEntitaet?> =
-        kategorieRepository.getKategorieByIdFlow(kategorieId)
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5000),
-                initialValue = null
-            )
+    fun getKategorieById(kategorieId: String): Flow<KategorieEntitaet?> { // Rueckgabetyp ist Flow<T?>
+        Timber.d("KategorieViewModel: Abrufen Kategorie nach ID: $kategorieId")
+        return kategorieRepository.getKategorieById(kategorieId) // ANPASSUNG: Methodennamen des Repositorys
+    }
 
     /**
-     * Speichert eine neue Kategorie lokal in Room.
+     * Speichert eine neue Kategorie lokal in Room oder aktualisiert eine bestehende.
      * WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
+     * Die Repository-Methode `kategorieSpeichern` uebernimmt Insert/Update-Logik.
      */
     fun kategorieSpeichern(kategorie: KategorieEntitaet) {
-        Timber.d("KategorieViewModel: Versuche Kategorie zu speichern: ${kategorie.name}")
+        Timber.d("KategorieViewModel: Versuche Kategorie zu speichern/aktualisieren: ${kategorie.name}")
         viewModelScope.launch {
-            try {
-                kategorieRepository.kategorieSpeichern(kategorie)
-                Timber.d("KategorieViewModel: Kategorie ${kategorie.name} lokal gespeichert.")
-            } catch (e: Exception) {
-                Timber.e(e, "KategorieViewModel: Fehler beim lokalen Speichern der Kategorie: ${e.message}")
-            }
+            kategorieRepository.kategorieSpeichern(kategorie)
+            Timber.d("KategorieViewModel: Kategorie ${kategorie.name} lokal gespeichert/aktualisiert.")
         }
     }
 
     /**
-     * Aktualisiert eine bestehende Kategorie lokal in Room.
+     * Markiert eine Kategorie lokal in Room zur Loeschung (soft delete).
      * WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
      */
-    fun kategorieAktualisieren(kategorie: KategorieEntitaet) {
-        Timber.d("KategorieViewModel: Versuche Kategorie zu aktualisieren: ${kategorie.name}")
+    fun kategorieZurLoeschungVormerken(kategorie: KategorieEntitaet) {
+        Timber.d("KategorieViewModel: Versuche Kategorie ${kategorie.name} zur Loeschung vorzumerken.")
         viewModelScope.launch {
-            try {
-                kategorieRepository.kategorieAktualisieren(kategorie)
-                Timber.d("KategorieViewModel: Kategorie ${kategorie.name} lokal aktualisiert.")
-            } catch (e: Exception) {
-                Timber.e(e, "KategorieViewModel: Fehler beim lokalen Aktualisieren der Kategorie: ${e.message}")
-            }
+            kategorieRepository.markKategorieForDeletion(kategorie) // ANPASSUNG: Methodennamen des Repositorys
+            Timber.d("KategorieViewModel: Kategorie ${kategorie.name} lokal zur Loeschung vorgemerkt.")
         }
     }
 
     /**
-     * Löscht eine Kategorie lokal in Room (soft delete: nur vormerken).
-     * WICHTIG: KEIN direkter Sync-Aufruf hier! Nur lokale Operation und Markierung.
+     * Funktion zum manuellen Ausloesen der Synchronisation fuer Kategorien.
      */
-    fun kategorieZurLoeschungVormerken(kategorie: KategorieEntitaet) { // Name der ViewModel-Methode ist deutsch und beschreibend
-        Timber.d("KategorieViewModel: Versuche Kategorie ${kategorie.name} zur Löschung vorzumerken.")
+    fun syncKategorienDaten() {
+        Timber.d("KategorieViewModel: Kategorie-Synchronisation ausgeloest.")
         viewModelScope.launch {
-            try {
-                kategorieRepository.kategorieLoeschen(kategorie) // Diese Methode markiert die Kategorie zur Löschung im Repo
-                Timber.d("KategorieViewModel: Kategorie ${kategorie.name} lokal zur Löschung vorgemerkt.")
-            } catch (e: Exception) {
-                Timber.e(e, "KategorieViewModel: Fehler beim lokalen Vormerken der Kategorie zur Löschung: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * Funktion zum manuellen Auslösen der Synchronisation für Kategorien.
-     */
-    fun syncKategorienDaten() { // Name der ViewModel-Methode ist deutsch
-        viewModelScope.launch {
-            kategorieRepository.syncKategorienMitFirestore() // Name der Repository-Methode ist deutsch
+            kategorieRepository.syncKategorieDaten() // ANPASSUNG: Methodennamen des Repositorys
         }
     }
 }

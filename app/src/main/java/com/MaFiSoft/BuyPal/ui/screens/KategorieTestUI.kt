@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/KategorieTestUI.kt
-// Stand: 2025-06-02_02:00:00 (KORRIGIERT: Aufrufe der ViewModel-Methoden auf Deutsch)
+// Stand: 2025-06-10_20:29:00, Codezeilen: 97
 
 package com.MaFiSoft.BuyPal.ui.screens
 
@@ -17,7 +17,7 @@ import com.MaFiSoft.BuyPal.presentation.viewmodel.KategorieViewModel
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.util.UUID
-import java.util.Date
+// import java.util.Date // Nicht mehr direkt hier benötigt, da erstellungszeitpunkt nicht manuell gesetzt wird
 
 @Composable
 fun KategorieTestUI(kategorieViewModel: KategorieViewModel) {
@@ -58,11 +58,11 @@ fun KategorieTestUI(kategorieViewModel: KategorieViewModel) {
                 kategorieId = UUID.randomUUID().toString(), // Generiere eine eindeutige ID
                 name = kategorieName,
                 beschreibung = kategorieBeschreibung.takeIf { it.isNotBlank() },
-                elternKategorieId = kategorieElternId.takeIf { it.isNotBlank() },
-                erstellungszeitpunkt = Date()
+                elternKategorieId = kategorieElternId.takeIf { it.isNotBlank() }
+                // KORRIGIERT: erstellungszeitpunkt = Date() entfernt.
+                // Dieser wird nun von Firestore (ServerTimestamp) oder der Repository-Logik gesetzt.
             )
             coroutineScope.launch {
-                // Korrigiert: Aufruf der ViewModel-Methode "kategorieSpeichern"
                 kategorieViewModel.kategorieSpeichern(neueKategorie)
             }
             kategorieName = ""
@@ -74,33 +74,42 @@ fun KategorieTestUI(kategorieViewModel: KategorieViewModel) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Button(onClick = {
-            coroutineScope.launch {
-                // Korrigiert: Aufruf der ViewModel-Methode "syncKategorienDaten"
-                kategorieViewModel.syncKategorienDaten()
-            }
-        }) {
-            Text("Kategorien mit Firestore synchronisieren (Manuell)")
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
         Text("Gespeicherte Kategorien:")
         LazyColumn {
             items(alleKategorien, key = { kategorie -> kategorie.kategorieId }) { kategorie ->
                 Column {
+                    // Zeige erstellungszeitpunkt und zuletztGeaendert fuer Debugging
                     Text("ID: ${kategorie.kategorieId.take(4)}..., Name: ${kategorie.name}, Eltern-ID: ${kategorie.elternKategorieId ?: "N/A"}")
-                    Button(
-                        onClick = {
-                            coroutineScope.launch {
-                                // Korrigiert: Aufruf der ViewModel-Methode "kategorieZurLoeschungVormerken"
-                                // Dies ist der "Soft-Delete", der das Lösch-Flag setzt.
-                                kategorieViewModel.kategorieZurLoeschungVormerken(kategorie)
-                                Timber.d("Kategorie ${kategorie.name} zur Loeschung vorgemerkt.")
+                    Text("Erstellt: ${kategorie.erstellungszeitpunkt?.toLocaleString() ?: "N/A"}, Geaendert: ${kategorie.zuletztGeaendert?.toLocaleString() ?: "N/A"}")
+                    Text("Lokal geaendert: ${kategorie.istLokalGeaendert}, Loeschung vorgemerkt: ${kategorie.istLoeschungVorgemerkt}")
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    // Dummy-Aktualisierung, um die Sync-Flags zu testen
+                                    val aktualisierteKategorie = kategorie.copy(
+                                        name = "${kategorie.name} Geaendert" // Dummy-Aenderung
+                                    )
+                                    kategorieViewModel.kategorieSpeichern(aktualisierteKategorie)
+                                    Timber.d("Kategorie ${kategorie.name} zum Test aktualisiert.")
+                                }
                             }
-                        },
-                        enabled = !kategorie.istLoeschungVorgemerkt // aktiviert wenn nicht vorgemerkt
-                    ) {
-                        Text("Zur Löschung vormerken")
+                        ) {
+                            Text("Test Update")
+                        }
+
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    kategorieViewModel.kategorieZurLoeschungVormerken(kategorie)
+                                    Timber.d("Kategorie ${kategorie.name} zur Loeschung vorgemerkt.")
+                                }
+                            },
+                            enabled = !kategorie.istLoeschungVorgemerkt // Deaktiviere, wenn bereits zur Löschung vorgemerkt
+                        ) {
+                            Text("Loeschen")
+                        }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }

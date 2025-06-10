@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/AppDatabase.kt
-// Stand: 2025-06-02_23:18:00 (BESTÄTIGT und KORRIGIERT um Produkt)
+// Stand: 2025-06-06_00:10:00, Codezeilen: 72
 
 package com.MaFiSoft.BuyPal.data
 
@@ -14,7 +14,7 @@ import com.MaFiSoft.BuyPal.data.KategorieEntitaet
 import com.MaFiSoft.BuyPal.data.EinkaufslisteEntitaet
 import com.MaFiSoft.BuyPal.data.GeschaeftEntitaet
 import com.MaFiSoft.BuyPal.data.GruppeEntitaet
-import com.MaFiSoft.BuyPal.data.ProduktEntitaet      // Bestätigt
+import com.MaFiSoft.BuyPal.data.ProduktEntitaet
 import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungEntitaet
 
 // Importieren Sie alle Ihre DAOs
@@ -24,7 +24,7 @@ import com.MaFiSoft.BuyPal.data.KategorieDao
 import com.MaFiSoft.BuyPal.data.EinkaufslisteDao
 import com.MaFiSoft.BuyPal.data.GeschaeftDao
 import com.MaFiSoft.BuyPal.data.GruppeDao
-import com.MaFiSoft.BuyPal.data.ProduktDao      // Bestätigt
+import com.MaFiSoft.BuyPal.data.ProduktDao
 import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungDao
 
 // KORRIGIERTER IMPORT für den Converter:
@@ -46,10 +46,10 @@ import com.MaFiSoft.BuyPal.data.Converters
         EinkaufslisteEntitaet::class,
         GeschaeftEntitaet::class,
         GruppeEntitaet::class,
-        ProduktEntitaet::class,      // HINZUGEFÜGT
+        ProduktEntitaet::class,
         ProduktGeschaeftVerbindungEntitaet::class
     ],
-    version = 3, // WICHTIG: Datenbankversion erhöht, da neue Entitäten und Felder hinzugefügt wurden
+    version = 30, // WICHTIG: Datenbankversion erneut erhöht (von 28 auf 29)
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -61,6 +61,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun getEinkaufslisteDao(): EinkaufslisteDao
     abstract fun getGeschaeftDao(): GeschaeftDao
     abstract fun getGruppeDao(): GruppeDao
-    abstract fun getProduktDao(): ProduktDao            // HINZUGEFÜGT
+    abstract fun getProduktDao(): ProduktDao
     abstract fun getProduktGeschaeftVerbindungDao(): ProduktGeschaeftVerbindungDao
 }
