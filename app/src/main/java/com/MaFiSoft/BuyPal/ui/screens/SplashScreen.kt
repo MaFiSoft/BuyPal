@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/SplashScreen.kt
-// Stand: 2025-06-03_00:48:00 (KORRIGIERT: Logo-Größe mit fillMaxWidth und ContentScale.FillWidth)
+// Stand: 2025-06-11_01:18:00 (ANPASSUNG: Bild direkt aus drawable-nodpi geladen für hohe Auflösung)
 
 package com.MaFiSoft.BuyPal.ui.screens
 
@@ -8,15 +8,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth // Wichtig für flexible Breite
-import androidx.compose.foundation.layout.height // Neu hinzugefügt für eine feste Höhe
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale // Import für ContentScale
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,18 +39,20 @@ fun SplashScreen(navController: NavController) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // App-Icon anzeigen
+        // App-Logo direkt aus dem drawable-nodpi Ordner laden.
+        // Stellen Sie sicher, dass Ihre hochauflösende Datei (z.B. splash_logo.png oder .webp)
+        // manuell in 'app/src/main/res/drawable-nodpi/' platziert wurde.
+        // Das System wird dieses Bild direkt und ohne automatische Skalierung basierend auf DPI laden.
         Image(
-            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+            // HINWEIS: Ersetzen Sie 'splash_logo' durch den tatsächlichen Dateinamen Ihres Bildes,
+            // wenn er anders ist (ohne Dateiendung wie .png oder .webp).
+            painter = painterResource(id = R.drawable.splash_logo),
             contentDescription = "App Logo",
+
             modifier = Modifier
-                .fillMaxWidth(0.8f) // <-- Füllt 80% der Bildschirmbreite
-                .height(200.dp), // <-- Eine feste Höhe, um sicherzustellen, dass es sichtbar ist.
-            // Die tatsächliche Breite wird durch fillMaxWidth(0.8f) bestimmt,
-            // und die Höhe wird dann passend skaliert.
-            contentScale = ContentScale.FillWidth // <-- HIER DIE ENTSCHEIDENDE ANPASSUNG:
-            // Das Bild wird so skaliert, dass es die gesamte Breite des
-            // zugewiesenen Bereichs ausfüllt. Die Höhe wird proportional angepasst.
+                .fillMaxWidth(0.8f), // Füllt 80% der Bildschirmbreite.
+            // Die Höhe passt sich automatisch dem 1:1 Seitenverhältnis des Bildes an.
+            contentScale = ContentScale.FillWidth // Bild so skalieren, dass es die Breite ausfüllt
         )
 
         Spacer(modifier = Modifier.height(32.dp))

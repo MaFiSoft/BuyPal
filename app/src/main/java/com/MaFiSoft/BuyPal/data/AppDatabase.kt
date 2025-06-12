@@ -49,7 +49,7 @@ import com.MaFiSoft.BuyPal.data.Converters
         ProduktEntitaet::class,
         ProduktGeschaeftVerbindungEntitaet::class
     ],
-    version = 30, // WICHTIG: Datenbankversion erneut erhöht (von 28 auf 29)
+    version = 32, // WICHTIG: Datenbankversion erneut erhöht (von 28 auf 29)
     exportSchema = true
 )
 @TypeConverters(Converters::class)

@@ -17,5 +17,6 @@ sealed class Screen(val route: String) {
     object GeschaeftVerwaltung : Screen("geschaeft_verwaltung")
     object GruppeVerwaltung : Screen("gruppe_verwaltung")
     object EinkaufslisteVerwaltung : Screen("einkaufsliste_verwaltung") // HINZUGEFÜGT: Route für Einkaufsliste
+    object ProduktGeschaeftVerbindung : Screen("produkt_geschaeft_verbindung_screen")
     // Fügen Sie hier weitere Routen hinzu, wenn neue Bildschirme erstellt werden
 }

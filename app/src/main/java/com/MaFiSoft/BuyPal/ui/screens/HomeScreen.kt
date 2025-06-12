@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/HomeScreen.kt
-// Stand: 2025-06-03_14:35:00, Codezeilen: 117
+// Stand: 2025-06-12_22:05:00, Codezeilen: 128 (Button fuer ProduktGeschaeftVerbindung hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.ui.screens
 
@@ -111,6 +111,13 @@ fun HomeScreen(
                 modifier = Modifier.padding(top = 8.dp)
             ) {
                 Text("Zur Einkaufslistenverwaltung (bald)")
+            }
+            // NEU: Button für Produkt-Geschäft-Verbindungen Test
+            Button(
+                onClick = { navController.navigate(Screen.ProduktGeschaeftVerbindung.route) },
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                Text("Produkt-Geschäft-Verbindungen Test")
             }
         }
     }

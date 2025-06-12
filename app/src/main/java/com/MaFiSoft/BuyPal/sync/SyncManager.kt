@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/sync/SyncManager.kt
-// Stand: 2025-06-10_20:29:00 (KORRIGIERT: Behebung des 'Geschaefte' vs 'Geschaeft' Fehlers)
+// Stand: 2025-06-11_21:07:00, Codezeilen: 67
 
 package com.MaFiSoft.BuyPal.sync
 
@@ -7,9 +7,10 @@ import com.MaFiSoft.BuyPal.repository.ArtikelRepository
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
 import com.MaFiSoft.BuyPal.repository.KategorieRepository
 import com.MaFiSoft.BuyPal.repository.ProduktRepository
-import com.MaFiSoft.BuyPal.repository.GeschaeftRepository // KORRIGIERT: Import zu 'GeschaeftRepository'
+import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
 import com.MaFiSoft.BuyPal.repository.GruppeRepository
 import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
+import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository // NEU: Import fuer ProduktGeschaeftVerbindungRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,9 +28,10 @@ class SyncManager @Inject constructor(
     private val artikelRepository: ArtikelRepository,
     private val kategorieRepository: KategorieRepository,
     private val produktRepository: ProduktRepository,
-    private val geschaeftRepository: GeschaeftRepository, // KORRIGIERT: Injektion zu 'geschaeftRepository'
+    private val geschaeftRepository: GeschaeftRepository,
     private val gruppeRepository: GruppeRepository,
-    private val einkaufslisteRepository: EinkaufslisteRepository
+    private val einkaufslisteRepository: EinkaufslisteRepository,
+    private val produktGeschaeftVerbindungRepository: ProduktGeschaeftVerbindungRepository // NEU: Injektion fuer ProduktGeschaeftVerbindungRepository
 ) {
     private val syncScope = CoroutineScope(Dispatchers.IO)
 
@@ -61,7 +63,7 @@ class SyncManager @Inject constructor(
                 Timber.d("SyncManager: Produktdaten synchronisiert.")
 
                 Timber.d("SyncManager: Synchronisiere Geschaeftsdaten...")
-                geschaeftRepository.syncGeschaefteDaten() // KORRIGIERT: Methodenaufruf zu 'syncGeschaeftDaten'
+                geschaeftRepository.syncGeschaefteDaten()
                 Timber.d("SyncManager: Geschaeftsdaten synchronisiert.")
 
                 Timber.d("SyncManager: Synchronisiere Gruppendaten...")
@@ -71,6 +73,10 @@ class SyncManager @Inject constructor(
                 Timber.d("SyncManager: Synchronisiere Einkaufslistendaten...")
                 einkaufslisteRepository.syncEinkaufslistenDaten()
                 Timber.d("SyncManager: Einkaufslistendaten synchronisiert.")
+
+                Timber.d("SyncManager: Synchronisiere Produkt-Geschaeft-Verbindungsdaten...") // NEU: Sync-Aufruf
+                produktGeschaeftVerbindungRepository.syncVerbindungDaten() // NEU: Sync-Aufruf
+                Timber.d("SyncManager: Produkt-Geschaeft-Verbindungsdaten synchronisiert.") // NEU: Sync-Log
 
                 Timber.d("SyncManager: Voller Synchronisationsprozess abgeschlossen.")
 

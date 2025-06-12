@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/di/AppModule.kt
-// Stand: 2025-06-03_15:35:00, Codezeilen: 175
+// Stand: 2025-06-11_23:30:00, Codezeilen: 200 (Fehlerbehebung: Context fuer ProduktGeschaeftVerbindungRepositoryImpl hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.di
 
@@ -10,10 +10,11 @@ import com.MaFiSoft.BuyPal.data.AppDatabase
 import com.MaFiSoft.BuyPal.data.BenutzerDao
 import com.MaFiSoft.BuyPal.data.ArtikelDao
 import com.MaFiSoft.BuyPal.data.KategorieDao
-import com.MaFiSoft.BuyPal.data.EinkaufslisteDao // HINZUGEFÜGT: Import für EinkaufslisteDao
+import com.MaFiSoft.BuyPal.data.EinkaufslisteDao
 import com.MaFiSoft.BuyPal.data.GruppeDao
 import com.MaFiSoft.BuyPal.data.ProduktDao
 import com.MaFiSoft.BuyPal.data.GeschaeftDao
+import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungDao // Import fuer ProduktGeschaeftVerbindungDao
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.auth.FirebaseAuth
@@ -27,8 +28,8 @@ import com.MaFiSoft.BuyPal.repository.impl.ArtikelRepositoryImpl
 import com.MaFiSoft.BuyPal.repository.KategorieRepository
 import com.MaFiSoft.BuyPal.repository.impl.KategorieRepositoryImpl
 
-import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository // HINZUGEFÜGT: Import für EinkaufslisteRepository
-import com.MaFiSoft.BuyPal.repository.impl.EinkaufslisteRepositoryImpl // HINZUGEFÜGT: Import für EinkaufslisteRepositoryImpl
+import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
+import com.MaFiSoft.BuyPal.repository.impl.EinkaufslisteRepositoryImpl
 
 import com.MaFiSoft.BuyPal.repository.GruppeRepository
 import com.MaFiSoft.BuyPal.repository.impl.GruppeRepositoryImpl
@@ -38,6 +39,9 @@ import com.MaFiSoft.BuyPal.repository.impl.ProduktRepositoryImpl
 
 import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
 import com.MaFiSoft.BuyPal.repository.impl.GeschaeftRepositoryImpl
+
+import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository // Import fuer ProduktGeschaeftVerbindungRepository
+import com.MaFiSoft.BuyPal.repository.impl.ProduktGeschaeftVerbindungRepositoryImpl // Import fuer ProduktGeschaeftVerbindungRepositoryImpl
 
 
 import dagger.Module
@@ -58,7 +62,7 @@ object AppModule {
         return FirebaseFirestore.getInstance()
     }
 
-    // Stellt die FirebaseAuth-Instanz bereit (benötigt von BenutzerRepositoryImpl).
+    // Stellt die FirebaseAuth-Instanz bereit (benoetigt von BenutzerRepositoryImpl).
     @Provides
     @Singleton
     fun provideFirebaseAuth(): FirebaseAuth {
@@ -99,7 +103,7 @@ object AppModule {
         return database.getKategorieDao()
     }
 
-    // Hinzugefügt: Stellt das EinkaufslisteDao bereit.
+    // Hinzugefuegt: Stellt das EinkaufslisteDao bereit.
     @Provides
     @Singleton
     fun provideEinkaufslisteDao(database: AppDatabase): EinkaufslisteDao {
@@ -125,6 +129,13 @@ object AppModule {
     @Singleton
     fun provideGeschaeftDao(database: AppDatabase): GeschaeftDao {
         return database.getGeschaeftDao()
+    }
+
+    // NEU: Stellt das ProduktGeschaeftVerbindungDao bereit.
+    @Provides
+    @Singleton
+    fun provideProduktGeschaeftVerbindungDao(database: AppDatabase): ProduktGeschaeftVerbindungDao {
+        return database.getProduktGeschaeftVerbindungDao()
     }
 
 
@@ -158,7 +169,7 @@ object AppModule {
         return KategorieRepositoryImpl(kategorieDao, firestore)
     }
 
-    // Hinzugefügt: Bereitstellung des EinkaufslisteRepository.
+    // Hinzugefuegt: Bereitstellung des EinkaufslisteRepository.
     @Provides
     @Singleton
     fun provideEinkaufslisteRepository(
@@ -196,5 +207,16 @@ object AppModule {
         firestore: FirebaseFirestore
     ): GeschaeftRepository {
         return GeschaeftRepositoryImpl(geschaeftDao, firestore)
+    }
+
+    // NEU: Bereitstellung des ProduktGeschaeftVerbindungRepository (Interface) durch die Implementierungsklasse.
+    @Provides
+    @Singleton
+    fun provideProduktGeschaeftVerbindungRepository(
+        produktGeschaeftVerbindungDao: ProduktGeschaeftVerbindungDao,
+        firestore: FirebaseFirestore,
+        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer den Konstruktor
+    ): ProduktGeschaeftVerbindungRepository {
+        return ProduktGeschaeftVerbindungRepositoryImpl(produktGeschaeftVerbindungDao, firestore, context)
     }
 }

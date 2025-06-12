@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/presentation/viewmodel/SyncViewModel.kt
-// Stand: 2025-06-10_20:21:00, Codezeilen: 28
+// Stand: 2025-06-11_21:09:00, Codezeilen: 28
 
 package com.MaFiSoft.BuyPal.presentation.viewmodel
 

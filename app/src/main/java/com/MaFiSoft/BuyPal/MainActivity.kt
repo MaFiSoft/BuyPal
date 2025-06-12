@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/MainActivity.kt
-// Stand: 2025-06-04_12:30:00, Codezeilen: 100 (reduziert durch Entfernen der eingebetteten BenutzerTestUI)
+// Stand: 2025-06-12_22:05:00, Codezeilen: 160 (Route fuer ProduktGeschaeftVerbindungTestScreen hinzugefuegt)
 
 package com.MaFiSoft.BuyPal
 
@@ -17,7 +17,7 @@ import com.MaFiSoft.BuyPal.ui.theme.BuyPalTheme
 import timber.log.Timber
 
 import dagger.hilt.android.AndroidEntryPoint
-import androidx.hilt.navigation.compose.hiltViewModel // Beibehalten für andere ViewModels
+import androidx.hilt.navigation.compose.hiltViewModel
 
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.NavHost
@@ -31,30 +31,27 @@ import com.MaFiSoft.BuyPal.presentation.viewmodel.ArtikelViewModel
 import com.MaFiSoft.BuyPal.sync.SyncManager
 import javax.inject.Inject
 
-// Import für KategorieEntitaet und KategorieViewModel
 import com.MaFiSoft.BuyPal.presentation.viewmodel.KategorieViewModel
 import com.MaFiSoft.BuyPal.ui.screens.KategorieTestUI
 import com.MaFiSoft.BuyPal.ui.screens.ArtikelTestUI
 
-// IMPORTS FÜR PRODUKT
 import com.MaFiSoft.BuyPal.presentation.viewmodel.ProduktViewModel
 import com.MaFiSoft.BuyPal.ui.screens.ProduktTestUI
 
-// IMPORTS FÜR GESCHAEFT
 import com.MaFiSoft.BuyPal.presentation.viewmodel.GeschaeftViewModel
 import com.MaFiSoft.BuyPal.ui.screens.GeschaeftTestUI
 
-// KORRIGIERTER IMPORT für die ausgelagerte BenutzerTestUI
 import com.MaFiSoft.BuyPal.ui.screens.BenutzerTestUI
 
-// NEU: Import für GruppeViewModel und GruppeTestUI
 import com.MaFiSoft.BuyPal.presentation.viewmodel.GruppeViewModel
 import com.MaFiSoft.BuyPal.ui.screens.GruppeTestUI
 
-// HINZUGEFÜGT: Import für EinkaufslisteViewModel und EinkaufslisteTestUI
 import com.MaFiSoft.BuyPal.presentation.viewmodel.EinkaufslisteViewModel
 import com.MaFiSoft.BuyPal.ui.screens.EinkaufslisteTestUI
 
+// NEU: Import fuer ProduktGeschaeftVerbindungTestScreen
+import com.MaFiSoft.BuyPal.ui.screens.ProduktGeschaeftVerbindungTestScreen
+import com.MaFiSoft.BuyPal.presentation.viewmodel.ProduktGeschaeftVerbindungViewModel // Benötigt, um ViewModel zu injizieren
 
 import androidx.compose.material3.ExperimentalMaterial3Api
 
@@ -137,6 +134,15 @@ class MainActivity : ComponentActivity() {
                         composable(Screen.EinkaufslisteVerwaltung.route) {
                             val einkaufslisteViewModel: EinkaufslisteViewModel = hiltViewModel()
                             EinkaufslisteTestUI(einkaufslisteViewModel = einkaufslisteViewModel)
+                        }
+                        // NEU: Composable-Definition für die ProduktGeschaeftVerbindungTestScreen
+                        composable(Screen.ProduktGeschaeftVerbindung.route) {
+                            val produktGeschaeftVerbindungViewModel: ProduktGeschaeftVerbindungViewModel = hiltViewModel()
+                            val produktViewModel: ProduktViewModel = hiltViewModel() // ProduktViewModel wird auch im PGVTestScreen benoetigt
+                            ProduktGeschaeftVerbindungTestScreen(
+                                produktGeschaeftVerbindungViewModel = produktGeschaeftVerbindungViewModel,
+                                produktViewModel = produktViewModel
+                            )
                         }
                         // Zukünftige Routen hier hinzufügen
                     }
