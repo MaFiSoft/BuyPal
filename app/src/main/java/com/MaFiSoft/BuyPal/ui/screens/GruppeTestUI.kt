@@ -89,7 +89,7 @@ fun GruppeTestUI(
             }
             Spacer(modifier = Modifier.height(16.dp))
 
-            Divider()
+            HorizontalDivider()
             Spacer(modifier = Modifier.height(16.dp))
 
             Text("Alle Gruppen:", style = MaterialTheme.typography.headlineSmall)

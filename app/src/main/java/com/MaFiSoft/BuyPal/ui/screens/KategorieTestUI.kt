@@ -80,7 +80,7 @@ fun KategorieTestUI(kategorieViewModel: KategorieViewModel) {
                 Column {
                     // Zeige erstellungszeitpunkt und zuletztGeaendert fuer Debugging
                     Text("ID: ${kategorie.kategorieId.take(4)}..., Name: ${kategorie.name}, Eltern-ID: ${kategorie.elternKategorieId ?: "N/A"}")
-                    Text("Erstellt: ${kategorie.erstellungszeitpunkt?.toLocaleString() ?: "N/A"}, Geaendert: ${kategorie.zuletztGeaendert?.toLocaleString() ?: "N/A"}")
+                    Text("Erstellt: ${kategorie.erstellungszeitpunkt?.toString() ?: "N/A"}, Geaendert: ${kategorie.zuletztGeaendert?.toString() ?: "N/A"}")
                     Text("Lokal geaendert: ${kategorie.istLokalGeaendert}, Loeschung vorgemerkt: ${kategorie.istLoeschungVorgemerkt}")
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {

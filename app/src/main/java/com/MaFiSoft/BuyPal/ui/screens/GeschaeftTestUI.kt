@@ -101,7 +101,7 @@ fun GeschaeftTestUI(
             }
             Spacer(modifier = Modifier.height(16.dp))
 
-            Divider()
+            HorizontalDivider()
             Spacer(modifier = Modifier.height(16.dp))
 
             Text("Alle Geschaefte:", style = MaterialTheme.typography.headlineSmall)

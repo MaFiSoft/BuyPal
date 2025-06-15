@@ -1,6 +1,8 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/ProduktTestUI.kt
 // Stand: 2025-06-12_13:30:00, Codezeilen: 415 (Erweiterte Diagnose-Logs hinzugefuegt)
 
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class) // <-- Diese Zeile hinzufuegen
+
 package com.MaFiSoft.BuyPal.ui.screens
 
 import androidx.compose.foundation.clickable

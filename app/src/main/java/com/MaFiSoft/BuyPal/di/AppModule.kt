@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/di/AppModule.kt
-// Stand: 2025-06-11_23:30:00, Codezeilen: 200 (Fehlerbehebung: Context fuer ProduktGeschaeftVerbindungRepositoryImpl hinzugefuegt)
+// Stand: 2025-06-13_11:25:00, Codezeilen: 205 (Context fuer ArtikelRepositoryImpl hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.di
 
@@ -144,9 +144,10 @@ object AppModule {
     @Singleton
     fun provideBenutzerRepository(
         benutzerDao: BenutzerDao,
-        firestore: FirebaseFirestore
+        firestore: FirebaseFirestore,
+        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): BenutzerRepository {
-        return BenutzerRepositoryImpl(benutzerDao, firestore)
+        return BenutzerRepositoryImpl(benutzerDao, firestore, context)
     }
 
     // Bereitstellung des ArtikelRepository (Interface) durch die Implementierungsklasse.
@@ -154,9 +155,10 @@ object AppModule {
     @Singleton
     fun provideArtikelRepository(
         artikelDao: ArtikelDao,
-        firestore: FirebaseFirestore
+        firestore: FirebaseFirestore,
+        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): ArtikelRepository {
-        return ArtikelRepositoryImpl(artikelDao, firestore)
+        return ArtikelRepositoryImpl(artikelDao, firestore, context) // HINZUGEFUEGT: Context Parameter
     }
 
     // Bereitstellung des KategorieRepository (Interface) durch die Implementierungsklasse.
@@ -164,9 +166,10 @@ object AppModule {
     @Singleton
     fun provideKategorieRepository(
         kategorieDao: KategorieDao,
-        firestore: FirebaseFirestore
+        firestore: FirebaseFirestore,
+        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): KategorieRepository {
-        return KategorieRepositoryImpl(kategorieDao, firestore)
+        return KategorieRepositoryImpl(kategorieDao, firestore, context)
     }
 
     // Hinzugefuegt: Bereitstellung des EinkaufslisteRepository.
@@ -174,9 +177,11 @@ object AppModule {
     @Singleton
     fun provideEinkaufslisteRepository(
         einkaufslisteDao: EinkaufslisteDao,
-        firestore: FirebaseFirestore
+        gruppeDao: GruppeDao, // HINZUGEFUEGT: Neue Abhaengigkeit
+        firestore: FirebaseFirestore,
+        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): EinkaufslisteRepository {
-        return EinkaufslisteRepositoryImpl(einkaufslisteDao, firestore)
+        return EinkaufslisteRepositoryImpl(einkaufslisteDao, gruppeDao, firestore, context) // HINZUGEFUEGT: gruppeDao, context
     }
 
     // NEU: Bereitstellung des GruppeRepository (Interface) durch die Implementierungsklasse.
@@ -184,9 +189,10 @@ object AppModule {
     @Singleton
     fun provideGruppeRepository(
         gruppeDao: GruppeDao,
-        firestore: FirebaseFirestore
+        firestore: FirebaseFirestore,
+        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): GruppeRepository {
-        return GruppeRepositoryImpl(gruppeDao, firestore)
+        return GruppeRepositoryImpl(gruppeDao, firestore, context)
     }
 
     // NEU: Bereitstellung des ProduktRepository (Interface) durch die Implementierungsklasse.
@@ -194,9 +200,11 @@ object AppModule {
     @Singleton
     fun provideProduktRepository(
         produktDao: ProduktDao,
-        firestore: FirebaseFirestore
+        kategorieDao: KategorieDao, // HINZUGEFUEGT: Neue Abhaengigkeit
+        firestore: FirebaseFirestore,
+        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): ProduktRepository {
-        return ProduktRepositoryImpl(produktDao, firestore)
+        return ProduktRepositoryImpl(produktDao, kategorieDao, firestore, context) // HINZUGEFUEGT: kategorieDao Parameter
     }
 
     // NEU: Bereitstellung des GeschaeftRepository (Interface) durch die Implementierungsklasse.
@@ -204,9 +212,10 @@ object AppModule {
     @Singleton
     fun provideGeschaeftRepository(
         geschaeftDao: GeschaeftDao,
-        firestore: FirebaseFirestore
+        firestore: FirebaseFirestore,
+        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): GeschaeftRepository {
-        return GeschaeftRepositoryImpl(geschaeftDao, firestore)
+        return GeschaeftRepositoryImpl(geschaeftDao, firestore, context)
     }
 
     // NEU: Bereitstellung des ProduktGeschaeftVerbindungRepository (Interface) durch die Implementierungsklasse.
@@ -215,7 +224,7 @@ object AppModule {
     fun provideProduktGeschaeftVerbindungRepository(
         produktGeschaeftVerbindungDao: ProduktGeschaeftVerbindungDao,
         firestore: FirebaseFirestore,
-        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer den Konstruktor
+        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): ProduktGeschaeftVerbindungRepository {
         return ProduktGeschaeftVerbindungRepositoryImpl(produktGeschaeftVerbindungDao, firestore, context)
     }

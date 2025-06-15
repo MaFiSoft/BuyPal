@@ -28,7 +28,7 @@ data class EinkaufslisteEntitaet(
     @PrimaryKey @DocumentId val einkaufslisteId: String,
     val name: String,
     val beschreibung: String? = null,
-    val gruppeId: String, // Verweis auf die Gruppe, zu der die Einkaufsliste gehört
+    val gruppeId: String? = null, // Verweis auf die Gruppe, zu der die Einkaufsliste gehört
     @ServerTimestamp
     val erstellungszeitpunkt: Date? = null,
     val zuletztGeaendert: Date? = null,
