@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/ArtikelDao.kt
-// Stand: 2025-06-03_15:25:00, Codezeilen: 56
+// Stand: 2025-06-15_04:50:00, Codezeilen: 58 (istOeffentlich und istEingekauft Filter hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -25,24 +25,24 @@ interface ArtikelDao {
     @Query("SELECT * FROM artikel WHERE artikelId = :artikelId")
     fun getArtikelById(artikelId: String): Flow<ArtikelEntitaet?>
 
-    // Holt alle aktiven Artikel (nicht zur Löschung vorgemerkt)
-    @Query("SELECT * FROM artikel WHERE istLoeschungVorgemerkt = 0 ORDER BY name ASC")
+    // Holt alle aktiven, oeffentlichen und NICHT-gekauften Artikel (nicht zur Löschung vorgemerkt)
+    @Query("SELECT * FROM artikel WHERE istLoeschungVorgemerkt = 0 AND istOeffentlich = 1 AND istEingekauft = 0 ORDER BY name ASC")
     fun getAllArtikel(): Flow<List<ArtikelEntitaet>>
 
-    // Holt Artikel nach Einkaufsliste ID
-    @Query("SELECT * FROM artikel WHERE einkaufslisteId = :einkaufslisteId AND istLoeschungVorgemerkt = 0 ORDER BY name ASC") // KORRIGIERT: listenId zu einkaufslisteId
+    // Holt aktive, oeffentliche und NICHT-gekauften Artikel nach Einkaufsliste ID
+    @Query("SELECT * FROM artikel WHERE einkaufslisteId = :einkaufslisteId AND istLoeschungVorgemerkt = 0 AND istOeffentlich = 1 AND istEingekauft = 0 ORDER BY name ASC")
     fun getArtikelByEinkaufslisteId(einkaufslisteId: String): Flow<List<ArtikelEntitaet>>
 
-    // Holt ALLE Artikel, auch die zur Löschung vorgemerkten (für interne Sync-Logik benötigt)
+    // Holt ALLE Artikel, auch die zur Löschung vorgemerkten und unabhaengig von istOeffentlich/istEingekauft (fuer interne Sync-Logik benoetigt)
     @Query("SELECT * FROM artikel")
     suspend fun getAllArtikelIncludingMarkedForDeletion(): List<ArtikelEntitaet>
 
-    // Methoden zum Abrufen von unsynchronisierten Daten
-    @Query("SELECT * FROM artikel WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")
+    // Methoden zum Abrufen von unsynchronisierten Oeffentlichen Daten
+    @Query("SELECT * FROM artikel WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0 AND istOeffentlich = 1")
     suspend fun getUnsynchronisierteArtikel(): List<ArtikelEntitaet>
 
-    // Methode zum Abrufen von Artikeln, die zur Löschung vorgemerkt sind
-    @Query("SELECT * FROM artikel WHERE istLoeschungVorgemerkt = 1")
+    // Methode zum Abrufen von Oeffentlichen Artikeln, die zur Löschung vorgemerkt sind
+    @Query("SELECT * FROM artikel WHERE istLoeschungVorgemerkt = 1 AND istOeffentlich = 1")
     suspend fun getArtikelFuerLoeschung(): List<ArtikelEntitaet>
 
     @Query("DELETE FROM artikel WHERE artikelId = :artikelId")

@@ -1,19 +1,28 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/ArtikelRepositoryImpl.kt
-// Stand: 2025-06-13_11:00:00, Codezeilen: 230 (Goldstandard Sync-Logik fuer Erstellungszeitpunkt implementiert)
+// Stand: 2025-06-16_08:55:00, Codezeilen: 395 (Alle bekannten Compilerfehler behoben)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
-import android.content.Context // Context wird fuer isOnline() benoetigt
+import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.MaFiSoft.BuyPal.data.ArtikelDao
 import com.MaFiSoft.BuyPal.data.ArtikelEntitaet
+import com.MaFiSoft.BuyPal.data.ProduktEntitaet
+import com.MaFiSoft.BuyPal.data.KategorieEntitaet
+import com.MaFiSoft.BuyPal.data.GeschaeftEntitaet
+import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungEntitaet
 import com.MaFiSoft.BuyPal.repository.ArtikelRepository
+import com.MaFiSoft.BuyPal.repository.ProduktRepository
+import com.MaFiSoft.BuyPal.repository.KategorieRepository
+import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
+import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository
+import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.firstOrNull // Fuer das Abrufen eines einzelnen Elements
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
@@ -31,247 +40,370 @@ import javax.inject.Singleton
 @Singleton
 class ArtikelRepositoryImpl @Inject constructor(
     private val artikelDao: ArtikelDao,
+    private val produktRepository: ProduktRepository,
+    private val kategorieRepository: KategorieRepository,
+    private val geschaeftRepository: GeschaeftRepository,
+    private val produktGeschaeftVerbindungRepository: ProduktGeschaeftVerbindungRepository,
+    private val einkaufslisteRepository: EinkaufslisteRepository,
     private val firestore: FirebaseFirestore,
-    private val context: Context // Hinzugefuegt, da isOnline() nun hier ist
+    private val context: Context
 ) : ArtikelRepository {
 
     private val ioScope = CoroutineScope(Dispatchers.IO)
-    private val firestoreCollection = firestore.collection("artikel") // Firestore-Sammlung fuer Artikel
+    private val firestoreCollection = firestore.collection("artikel")
+    private val TAG = "DEBUG_REPO_ARTIKEL"
 
-    // Init-Block: Stellt sicher, dass initial Artikel aus Firestore in Room sind (Pull-Sync).
     init {
         ioScope.launch {
-            Timber.d("Initialer Sync: Starte Pull-Synchronisation der Artikeldaten (aus Init-Block).")
+            Timber.d("$TAG: Initialer Sync: Starte Pull-Synchronisation der Artikeldaten (aus Init-Block).")
             performPullSync()
-            Timber.d("Initialer Sync: Pull-Synchronisation der Artikeldaten abgeschlossen (aus Init-Block).")
+            Timber.d("$TAG: Initialer Sync: Pull-Synchronisation der Artikeldaten abgeschlossen (aus Init-Block).")
         }
     }
 
     // --- Lokale Datenbank-Operationen (Room) ---
 
     override suspend fun artikelSpeichern(artikel: ArtikelEntitaet) {
-        Timber.d("ArtikelRepositoryImpl: Versuche Artikel lokal zu speichern/aktualisieren: ${artikel.name} (ID: ${artikel.artikelId}).")
+        Timber.d("$TAG: Versuche Artikel lokal zu speichern/aktualisieren: ${artikel.name} (ID: ${artikel.artikelId}).")
 
-        // Zuerst versuchen, einen bestehenden Artikel abzurufen, um erstellungszeitpunkt zu erhalten
         val existingArtikel = artikelDao.getArtikelById(artikel.artikelId).firstOrNull()
-        Timber.d("ArtikelRepositoryImpl: artikelSpeichern: Bestehender Artikel im DAO gefunden: ${existingArtikel != null}. Erstellungszeitpunkt (existing): ${existingArtikel?.erstellungszeitpunkt}, ZuletztGeaendert (existing): ${existingArtikel?.zuletztGeaendert}")
+        Timber.d("$TAG: artikelSpeichern: Bestehender Artikel im DAO gefunden: ${existingArtikel != null}. Erstellungszeitpunkt (existing): ${existingArtikel?.erstellungszeitpunkt}, ZuletztGeaendert (existing): ${existingArtikel?.zuletztGeaendert}, IstOeffentlich (existing): ${existingArtikel?.istOeffentlich}, IstEingekauft (existing): ${existingArtikel?.istEingekauft}")
+
+        // Pruefe, ob die Einkaufsliste existiert, bevor auf ihre Eigenschaften zugegriffen wird
+        val istOeffentlichNeu = if (artikel.einkaufslisteId != null) {
+            try {
+                val einkaufsliste = einkaufslisteRepository.getEinkaufslisteById(artikel.einkaufslisteId).firstOrNull()
+                // Artikel ist oeffentlich, wenn die Einkaufsliste eine Gruppen-ID hat
+                einkaufsliste?.gruppeId != null
+            } catch (e: Exception) {
+                Timber.e(e, "$TAG: FEHLER beim Abrufen der Einkaufsliste fuer Artikel ${artikel.artikelId}. Setze istOeffentlich auf False.")
+                false // Bei Fehler Annahme: nicht oeffentlich
+            }
+        } else {
+            Timber.w("$TAG: Artikel ${artikel.artikelId} hat keine EinkaufslisteId. Setze istOeffentlich auf False.")
+            false // Wenn keine Einkaufsliste-ID vorhanden ist, ist der Artikel nicht oeffentlich
+        }
 
 
-        // KORRIGIERT: Keine automatische ID-Generierung hier. Entspricht dem Goldstandard von BenutzerRepositoryImpl.
-        // Die artikelId wird so uebernommen, wie sie im uebergebenen ArtikelEntitaet-Objekt vorhanden ist.
-        // Eine neue ID (z.B. UUID) muss VOR dem Aufruf dieser Methode gesetzt werden, wenn es sich um einen neuen Artikel handelt.
-        val artikelMitTimestamp = artikel.copy(
-            // erstellungszeitpunkt bleibt NULL fuer neue Eintraege, damit Firestore ihn setzt.
-            // Nur wenn ein bestehender Artikel existiert, seinen erstellungszeitpunkt beibehalten.
+        // Ueberschreibe das istOeffentlich-Flag des Artikels basierend auf der Listenart
+        val artikelToSave = artikel.copy(
             erstellungszeitpunkt = existingArtikel?.erstellungszeitpunkt,
+            istOeffentlich = istOeffentlichNeu, // WICHTIG: Flag wird hier gesetzt
+            istEingekauft = artikel.istEingekauft, // Bleibt vom uebergebenen Objekt
             zuletztGeaendert = Date(),
-            istLokalGeaendert = true // Markieren fuer spaeteren Sync
+            istLokalGeaendert = true,
+            istLoeschungVorgemerkt = false // Beim Speichern/Aktualisieren ist dies immer false
         )
 
-        Timber.d("ArtikelRepositoryImpl: Vor DAO-Einfuegung/Aktualisierung: Artikel ${artikelMitTimestamp.name}, ID: ${artikelMitTimestamp.artikelId}, LokalGeaendert: ${artikelMitTimestamp.istLokalGeaendert}, Erstellungszeitpunkt: ${artikelMitTimestamp.erstellungszeitpunkt}")
+        Timber.d("$TAG: Vor DAO-Einfuegung/Aktualisierung: Artikel ${artikelToSave.name}, ID: ${artikelToSave.artikelId}, LokalGeaendert: ${artikelToSave.istLokalGeaendert}, Erstellungszeitpunkt: ${artikelToSave.erstellungszeitpunkt}, IstOeffentlich: ${artikelToSave.istOeffentlich}, IstEingekauft: ${artikelToSave.istEingekauft}")
         try {
-            artikelDao.artikelEinfuegen(artikelMitTimestamp) // Geaendert zu einfuegen, um REPLACE-Verhalten zu nutzen
-            Timber.d("ArtikelRepositoryImpl: Artikel ${artikelMitTimestamp.name} (ID: ${artikelMitTimestamp.artikelId}) erfolgreich lokal gespeichert/aktualisiert.")
+            artikelDao.artikelEinfuegen(artikelToSave)
+            Timber.d("$TAG: Artikel ${artikelToSave.name} (ID: ${artikelToSave.artikelId}) erfolgreich lokal gespeichert/aktualisiert.")
 
-            // ZUSÄTZLICHER LOG: Verifikation nach dem Speichern
-            val retrievedArtikel = artikelDao.getArtikelById(artikelMitTimestamp.artikelId).firstOrNull()
-            if (retrievedArtikel != null) {
-                Timber.d("ArtikelRepositoryImpl: VERIFIZIERUNG: Artikel nach Speichern erfolgreich aus DB abgerufen. ArtikelID: '${retrievedArtikel.artikelId}', Erstellungszeitpunkt: ${retrievedArtikel.erstellungszeitpunkt}, ZuletztGeaendert: ${retrievedArtikel.zuletztGeaendert}, istLokalGeaendert: ${retrievedArtikel.istLokalGeaendert}")
+            // Kaskadierung der istOeffentlich-Flags nur, wenn der Artikel oeffentlich ist
+            if (artikelToSave.istOeffentlich) {
+                Timber.d("$TAG: Artikel ist oeffentlich. Starte Kaskadierung fuer Produkt, Kategorie, Geschaeft, ProduktGeschaeftVerbindung.")
+                kaskadiereOeffentlichFlags(artikelToSave)
             } else {
-                Timber.e("ArtikelRepositoryImpl: VERIFIZIERUNG FEHLGESCHLAGEN: Artikel konnte nach Speichern NICHT aus DB abgerufen werden! ArtikelID: '${artikelMitTimestamp.artikelId}'")
+                Timber.d("$TAG: Artikel ist persoenlich. Keine Kaskadierung der istOeffentlich-Flags.")
+            }
+
+            val retrievedArtikel = artikelDao.getArtikelById(artikelToSave.artikelId).firstOrNull()
+            if (retrievedArtikel != null) {
+                Timber.d("$TAG: VERIFIZIERUNG: Artikel nach Speichern erfolgreich aus DB abgerufen. ArtikelID: '${retrievedArtikel.artikelId}', Erstellungszeitpunkt: ${retrievedArtikel.erstellungszeitpunkt}, ZuletztGeaendert: ${retrievedArtikel.zuletztGeaendert}, istLokalGeaendert: ${retrievedArtikel.istLokalGeaendert}, IstOeffentlich: ${retrievedArtikel.istOeffentlich}, IstEingekauft: ${retrievedArtikel.istEingekauft}")
+            } else {
+                Timber.e("$TAG: VERIFIZIERUNG FEHLGESCHLAGEN: Artikel konnte nach Speichern NICHT aus DB abgerufen werden! ArtikelID: '${artikelToSave.artikelId}'")
             }
 
         } catch (e: Exception) {
-            Timber.e(e, "ArtikelRepositoryImpl: FEHLER beim lokalen Speichern/Aktualisieren von Artikel ${artikelMitTimestamp.name} (ID: ${artikelMitTimestamp.artikelId}).")
+            Timber.e(e, "$TAG: FEHLER beim lokalen Speichern/Aktualisieren von Artikel ${artikelToSave.name} (ID: ${artikelToSave.artikelId}).")
         }
     }
 
     override suspend fun artikelAktualisieren(artikel: ArtikelEntitaet) {
-        // Nutzt die gleiche Logik wie Speichern, um Flags zu setzen
         artikelSpeichern(artikel)
-        Timber.d("ArtikelRepositoryImpl: Artikel aktualisiert durch 'artikelSpeichern' Logik: ${artikel.artikelId}")
+        Timber.d("$TAG: Artikel aktualisiert durch 'artikelSpeichern' Logik: ${artikel.artikelId}")
     }
 
     override suspend fun artikelLoeschen(artikel: ArtikelEntitaet) {
-        Timber.d("ArtikelRepositoryImpl: Markiere Artikel zur Loeschung: ${artikel.name} (ID: ${artikel.artikelId}).")
+        Timber.d("$TAG: Markiere Artikel zur Loeschung: ${artikel.name} (ID: ${artikel.artikelId}).")
         val artikelLoeschenVorgemerkt = artikel.copy(
             istLoeschungVorgemerkt = true,
             zuletztGeaendert = Date(),
-            istLokalGeaendert = true // Auch eine Loeschung ist eine lokale Aenderung, die gesynct werden muss
+            istLokalGeaendert = true
         )
         artikelDao.artikelAktualisieren(artikelLoeschenVorgemerkt)
-        Timber.d("ArtikelRepositoryImpl: Artikel ${artikelLoeschenVorgemerkt.name} (ID: ${artikelLoeschenVorgemerkt.artikelId}) lokal zur Loeschung vorgemerkt.")
+        Timber.d("$TAG: Artikel ${artikelLoeschenVorgemerkt.name} (ID: ${artikelLoeschenVorgemerkt.artikelId}) lokal zur Loeschung vorgemerkt.")
     }
 
     override suspend fun loescheArtikel(artikelId: String) {
-        Timber.d("ArtikelRepositoryImpl: Artikel endgueltig loeschen (lokal): $artikelId")
+        Timber.d("$TAG: Artikel endgueltig loeschen (lokal): $artikelId")
         try {
             artikelDao.deleteArtikelById(artikelId)
-            Timber.d("ArtikelRepositoryImpl: Artikel $artikelId erfolgreich lokal geloescht.")
+            Timber.d("$TAG: Artikel $artikelId erfolgreich lokal geloescht.")
         } catch (e: Exception) {
-            Timber.e(e, "ArtikelRepositoryImpl: Fehler beim endgueltigen Loeschen von Artikel $artikelId.")
+            Timber.e(e, "$TAG: Fehler beim endgueltigen Loeschen von Artikel $artikelId.")
+        }
+    }
+
+    /**
+     * Markiert einen Artikel als "eingekauft" (istEingekauft = true).
+     * Setzt istLokalGeaendert, aber nicht istLoeschungVorgemerkt.
+     */
+    override suspend fun markiereArtikelAlsEingekauft(artikel: ArtikelEntitaet) {
+        Timber.d("$TAG: Markiere Artikel als eingekauft: ${artikel.name} (ID: ${artikel.artikelId}).")
+        val artikelEingekauft = artikel.copy(
+            istEingekauft = true,
+            zuletztGeaendert = Date(),
+            istLokalGeaendert = true, // Muss synchronisiert werden
+            istLoeschungVorgemerkt = false // Dies ist KEINE Loeschung!
+        )
+        try {
+            artikelDao.artikelAktualisieren(artikelEingekauft)
+            Timber.d("$TAG: Artikel ${artikelEingekauft.name} (ID: ${artikelEingekauft.artikelId}) erfolgreich als 'eingekauft' markiert.")
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: FEHLER beim Markieren von Artikel ${artikel.name} (ID: ${artikel.artikelId}) als 'eingekauft'.")
         }
     }
 
     override fun getArtikelById(artikelId: String): Flow<ArtikelEntitaet?> {
-        Timber.d("ArtikelRepositoryImpl: Abrufen Artikel nach ID: $artikelId")
+        Timber.d("$TAG: Abrufen Artikel nach ID: $artikelId")
         return artikelDao.getArtikelById(artikelId)
     }
 
     override fun getAllArtikel(): Flow<List<ArtikelEntitaet>> {
-        Timber.d("ArtikelRepositoryImpl: Abrufen aller aktiven Artikel.")
+        Timber.d("$TAG: Abrufen aller aktiven Artikel.")
         return artikelDao.getAllArtikel()
     }
 
     // --- Synchronisations-Operationen (Room <-> Firestore) ---
 
     override suspend fun syncArtikelDaten() {
-        Timber.d("ArtikelRepositoryImpl: Starte manuelle Synchronisation der Artikeldaten.")
+        Timber.d("$TAG: Starte manuelle Synchronisation der Artikeldaten.")
 
-        if (!isOnline()) { // Ueberpruefung der Internetverbindung hinzugefuegt
-            Timber.d("ArtikelRepositoryImpl: Keine Internetverbindung fuer Synchronisation verfuegbar.")
+        if (!isOnline()) {
+            Timber.d("$TAG: Keine Internetverbindung fuer Synchronisation verfuegbar.")
             return
         }
 
-        // 1. Lokale Loeschungen zu Firestore pushen
+        // 1. Lokale Loeschungen zu Firestore pushen (DAO filtert bereits nach istOeffentlich = 1)
         val artikelFuerLoeschung = artikelDao.getArtikelFuerLoeschung()
         for (artikel in artikelFuerLoeschung) {
             try {
-                Timber.d("Sync: Push Loeschung fuer Artikel: ${artikel.name} (ID: ${artikel.artikelId}).")
-                firestoreCollection.document(artikel.artikelId).delete().await()
+                if (artikel.istOeffentlich) {
+                    Timber.d("$TAG: Sync: Push Loeschung fuer Oeffentlichen Artikel: ${artikel.name} (ID: ${artikel.artikelId}).")
+                    firestoreCollection.document(artikel.artikelId).delete().await()
+                    Timber.d("$TAG: Sync: Oeffentlicher Artikel ${artikel.name} (ID: ${artikel.artikelId}) erfolgreich aus Firestore geloescht.")
+                } else {
+                    Timber.d("$TAG: Sync: Artikel ${artikel.name} (ID: ${artikel.artikelId}) ist persoenlich (istOeffentlich=false) und zur Loeschung vorgemerkt. Keine Loeschung aus Firestore.")
+                }
                 artikelDao.deleteArtikelById(artikel.artikelId)
-                Timber.d("Sync: Artikel ${artikel.name} (ID: ${artikel.artikelId}) erfolgreich aus Firestore und lokal geloescht.")
             } catch (e: Exception) {
-                Timber.e(e, "Sync: Fehler beim Loeschen von Artikel ${artikel.name} (ID: ${artikel.artikelId}) aus Firestore.")
-                // Fehlerbehandlung: Artikel bleibt zur Loeschung vorgemerkt, wird spaeter erneut versucht
+                Timber.e(e, "$TAG: Sync: Fehler beim Loeschen von Artikel ${artikel.name} (ID: ${artikel.artikelId}) aus Firestore.")
             }
         }
 
-        // 2. Lokale Hinzufuegungen/Aenderungen zu Firestore pushen
+        // 2. Lokale Hinzufuegungen/Aenderungen zu Firestore pushen (DAO filtert bereits nach istOeffentlich = 1)
         val unsynchronisierteArtikel = artikelDao.getUnsynchronisierteArtikel()
         for (artikel in unsynchronisierteArtikel) {
             try {
-                // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false FÜR FIRESTORE, da der Datensatz jetzt synchronisiert wird
-                val artikelFuerFirestore = artikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
-                Timber.d("Sync: Push Upload/Update fuer Artikel: ${artikel.name} (ID: ${artikel.artikelId}).")
-                firestoreCollection.document(artikel.artikelId).set(artikelFuerFirestore).await()
-                // Nach erfolgreichem Upload lokale Flags zuruecksetzen
-                artikelDao.artikelAktualisieren(artikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
-                Timber.d("Sync: Artikel ${artikel.name} (ID: ${artikel.artikelId}) erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
+                if (!artikel.istLoeschungVorgemerkt && artikel.istOeffentlich) {
+                    // istEingekauft sollte nicht in Firestore gepusht werden, da es ein lokaler Zustand ist.
+                    // Ein eingekaufter Artikel wird von der Liste entfernt (durch Loeschung im Front-End)
+                    // oder nach Ende der Liste archiviert. Firestore spiegelt nur "aktive" Artikel.
+                    val artikelFuerFirestore = artikel.copy(
+                        istLokalGeaendert = false,
+                        istLoeschungVorgemerkt = false,
+                        istEingekauft = false // Firestore soll keine "eingekauften" Artikel speichern.
+                    )
+                    Timber.d("$TAG: Sync: Push Upload/Update fuer Oeffentlichen Artikel: ${artikel.name} (ID: ${artikel.artikelId}), IstEingekauft (lokal): ${artikel.istEingekauft}.")
+                    firestoreCollection.document(artikel.artikelId).set(artikelFuerFirestore).await()
+                    artikelDao.artikelAktualisieren(artikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                    Timber.d("$TAG: Sync: Oeffentlicher Artikel ${artikel.name} (ID: ${artikel.artikelId}) erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
+                } else if (!artikel.istOeffentlich) {
+                    Timber.d("$TAG: Sync: Artikel ${artikel.name} (ID: ${artikel.artikelId}) ist persoenlich (istOeffentlich=false). Kein Upload zu Firestore.")
+                    artikelDao.artikelAktualisieren(artikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                } else {
+                    Timber.d("$TAG: Sync: Artikel ${artikel.name} (ID: ${artikel.artikelId}) ist zur Loeschung vorgemerkt. Kein Upload zu Firestore, wird separat gehandhabt.")
+                }
             } catch (e: Exception) {
-                Timber.e(e, "Sync: Fehler beim Hochladen von Artikel ${artikel.name} (ID: ${artikel.artikelId}) zu Firestore.")
-                // Fehlerbehandlung: Artikel bleibt als lokal geaendert markiert, wird spaeter erneut versucht
+                Timber.e(e, "$TAG: Sync: Fehler beim Hochladen von Artikel ${artikel.name} (ID: ${artikel.artikelId}) zu Firestore.")
             }
         }
 
         // 3. Firestore-Daten herunterladen und lokale Datenbank aktualisieren (Last-Write-Wins)
-        Timber.d("Sync: Starte Pull-Phase der Synchronisation fuer Artikeldaten.")
-        performPullSync() // Ausgelagert in separate Funktion
-        Timber.d("Sync: Synchronisation der Artikeldaten abgeschlossen.")
+        Timber.d("$TAG: Sync: Starte Pull-Phase der Synchronisation fuer Artikeldaten.")
+        performPullSync()
+        Timber.d("$TAG: Sync: Synchronisation der Artikeldaten abgeschlossen.")
     }
 
-    // Ausgelagerte Funktion fuer den Pull-Sync-Teil mit detaillierterem Logging (Goldstandard-Logik)
     private suspend fun performPullSync() {
-        Timber.d("performPullSync aufgerufen.")
+        Timber.d("$TAG: performPullSync aufgerufen.")
         try {
             val firestoreSnapshot = firestoreCollection.get().await()
             val firestoreArtikelList = firestoreSnapshot.toObjects(ArtikelEntitaet::class.java)
-            Timber.d("Sync Pull: ${firestoreArtikelList.size} Artikel von Firestore abgerufen.")
-            // ZUSÄTZLICHER LOG: Erstellungszeitpunkt direkt nach Firestore-Deserialisierung pruefen
+            Timber.d("$TAG: Sync Pull: ${firestoreArtikelList.size} Artikel von Firestore abgerufen.")
             firestoreArtikelList.forEach { fa ->
-                Timber.d("Sync Pull (Firestore-Deserialisierung): ArtikelID: '${fa.artikelId}', Erstellungszeitpunkt: ${fa.erstellungszeitpunkt}, ZuletztGeaendert: ${fa.zuletztGeaendert}")
+                Timber.d("$TAG: Sync Pull (Firestore-Deserialisierung): ArtikelID: '${fa.artikelId}', Erstellungszeitpunkt: ${fa.erstellungszeitpunkt}, ZuletztGeaendert: ${fa.zuletztGeaendert}, IstOeffentlich: ${fa.istOeffentlich}, IstEingekauft: ${fa.istEingekauft}")
             }
 
             val allLocalArtikel = artikelDao.getAllArtikelIncludingMarkedForDeletion()
             val localArtikelMap = allLocalArtikel.associateBy { it.artikelId }
-            Timber.d("Sync Pull: ${allLocalArtikel.size} Artikel lokal gefunden (inkl. geloeschter/geaenderter).")
+            Timber.d("$TAG: Sync Pull: ${allLocalArtikel.size} Artikel lokal gefunden (inkl. geloeschter/geaenderter).")
 
             for (firestoreArtikel in firestoreArtikelList) {
                 val lokalerArtikel = localArtikelMap[firestoreArtikel.artikelId]
-                Timber.d("Sync Pull: Verarbeite Firestore-Artikel: ${firestoreArtikel.name} (ID: ${firestoreArtikel.artikelId}).")
+                Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Artikel: ${firestoreArtikel.name} (ID: ${firestoreArtikel.artikelId}), IstOeffentlich: ${firestoreArtikel.istOeffentlich}, IstEingekauft: ${firestoreArtikel.istEingekauft}.")
 
                 if (lokalerArtikel == null) {
-                    // Artikel existiert nur in Firestore, lokal einfuegen
-                    // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false, da es von Firestore kommt und synchronisiert ist
-                    val newArtikelInRoom = firestoreArtikel.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
+                    val newArtikelInRoom = firestoreArtikel.copy(
+                        istLokalGeaendert = false,
+                        istLoeschungVorgemerkt = false,
+                        istOeffentlich = true // Von Firestore kommt nur oeffentliches Material
+                    )
                     artikelDao.artikelEinfuegen(newArtikelInRoom)
-                    Timber.d("Sync Pull: NEUER Artikel ${newArtikelInRoom.name} (ID: ${newArtikelInRoom.artikelId}) von Firestore in Room HINZUGEFUEGT. Erstellungszeitpunkt in Room: ${newArtikelInRoom.erstellungszeitpunkt}")
+                    Timber.d("$TAG: Sync Pull: NEUER Artikel ${newArtikelInRoom.name} (ID: ${newArtikelInRoom.artikelId}) von Firestore in Room HINZUGEFUEGT. Erstellungszeitpunkt in Room: ${newArtikelInRoom.erstellungszeitpunkt}, IstOeffentlich: ${newArtikelInRoom.istOeffentlich}, IstEingekauft: ${newArtikelInRoom.istEingekauft}.")
                 } else {
-                    Timber.d("Sync Pull: Lokaler Artikel ${lokalerArtikel.name} (ID: ${lokalerArtikel.artikelId}) gefunden. Lokal geaendert: ${lokalerArtikel.istLokalGeaendert}, Zur Loeschung vorgemerkt: ${lokalerArtikel.istLoeschungVorgemerkt}.")
+                    Timber.d("$TAG: Sync Pull: Lokaler Artikel ${lokalerArtikel.name} (ID: ${lokalerArtikel.artikelId}) gefunden. Lokal geaendert: ${lokalerArtikel.istLokalGeaendert}, Zur Loeschung vorgemerkt: ${lokalerArtikel.istLoeschungVorgemerkt}, IstOeffentlich: ${lokalerArtikel.istOeffentlich}, IstEingekauft: ${lokalerArtikel.istEingekauft}.")
 
-                    // Prioritaeten der Konfliktloesung (Konsistent mit BenutzerRepositoryImpl):
-                    // 1. Wenn lokal zur Loeschung vorgemerkt, lokale Version beibehalten (wird im Push geloescht)
                     if (lokalerArtikel.istLoeschungVorgemerkt) {
-                        Timber.d("Sync Pull: Lokaler Artikel ${lokalerArtikel.name} ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert.")
-                        continue // Naechsten Firestore-Artikel verarbeiten
+                        Timber.d("$TAG: Sync Pull: Lokaler Artikel ${lokalerArtikel.name} ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert.")
+                        continue
                     }
-                    // 2. Wenn lokal geaendert, lokale Version beibehalten (wird im Push hochgeladen)
                     if (lokalerArtikel.istLokalGeaendert) {
-                        Timber.d("Sync Pull: Lokaler Artikel ${lokalerArtikel.name} ist lokal geaendert. Pull-Version von Firestore wird ignoriert.")
-                        continue // Naechsten Firestore-Artikel verarbeiten
+                        Timber.d("$TAG: Sync Pull: Lokaler Artikel ${lokalerArtikel.name} ist lokal geaendert. Pull-Version von Firestore wird ignoriert.")
+                        continue
                     }
 
-                    // 3. Wenn Firestore-Version zur Loeschung vorgemerkt ist, lokal loeschen (da lokale Version nicht geaendert ist und nicht zur Loeschung vorgemerkt)
                     if (firestoreArtikel.istLoeschungVorgemerkt) {
                         artikelDao.deleteArtikelById(lokalerArtikel.artikelId)
-                        Timber.d("Sync Pull: Artikel ${lokalerArtikel.name} lokal GELÖSCHT, da in Firestore als geloescht markiert und lokale Version nicht veraendert.")
-                        continue // Naechsten Firestore-Artikel verarbeiten
+                        Timber.d("$TAG: Sync Pull: Artikel ${lokalerArtikel.name} lokal GELÖSCHT, da in Firestore als geloescht markiert und lokale Version nicht veraendert.")
+                        continue
                     }
 
-                    // --- ZUSÄTZLICHE PRÜFUNG fuer Erstellungszeitpunkt (NEU / GOLDSTANDARD-ANPASSUNG) ---
-                    // Wenn erstellungszeitpunkt lokal null ist, aber von Firestore einen Wert hat, aktualisieren
                     val shouldUpdateErstellungszeitpunkt =
                         lokalerArtikel.erstellungszeitpunkt == null && firestoreArtikel.erstellungszeitpunkt != null
                     if (shouldUpdateErstellungszeitpunkt) {
-                        Timber.d("Sync Pull: Erstellungszeitpunkt von NULL auf Firestore-Wert aktualisiert fuer ArtikelID: '${lokalerArtikel.artikelId}'.")
+                        Timber.d("$TAG: Sync Pull: Erstellungszeitpunkt von NULL auf Firestore-Wert aktualisiert fuer ArtikelID: '${lokalerArtikel.artikelId}'.")
                     }
-                    // --- Ende der ZUSÄTZLICHEN PRÜFUNG ---
 
-
-                    // 4. Last-Write-Wins basierend auf Zeitstempel (wenn keine Konflikte nach Prioritaeten 1-3)
                     val firestoreTimestamp = firestoreArtikel.zuletztGeaendert ?: firestoreArtikel.erstellungszeitpunkt
                     val localTimestamp = lokalerArtikel.zuletztGeaendert ?: lokalerArtikel.erstellungszeitpunkt
 
                     val isFirestoreNewer = when {
-                        firestoreTimestamp == null && localTimestamp == null -> false // Beide null, keine klare Entscheidung, lokale Version (die ja nicht geaendert ist) behalten
-                        firestoreTimestamp != null && localTimestamp == null -> true // Firestore hat Timestamp, lokal nicht, Firestore ist neuer
-                        firestoreTimestamp == null && localTimestamp != null -> false // Lokal hat Timestamp, Firestore nicht, lokal ist neuer
-                        firestoreTimestamp != null && localTimestamp != null -> firestoreTimestamp.after(localTimestamp) // Beide haben Timestamps, vergleichen
-                        else -> false // Sollte nicht passieren
+                        firestoreTimestamp == null && localTimestamp == null -> false
+                        firestoreTimestamp != null && localTimestamp == null -> true
+                        firestoreTimestamp == null && localTimestamp != null -> false
+                        firestoreTimestamp != null && localTimestamp != null -> firestoreTimestamp.after(localTimestamp)
+                        else -> false
                     }
 
-                    // Führen Sie ein Update durch, wenn Firestore neuer ist ODER der Erstellungszeitpunkt aktualisiert werden muss
-                    if (isFirestoreNewer || shouldUpdateErstellungszeitpunkt) { // <-- HIER ist die 'OR'-Bedingung
-                        // Firestore ist neuer und lokale Version ist weder zur Loeschung vorgemerkt noch lokal geaendert (da durch 'continue' oben abgefangen)
+                    if (isFirestoreNewer || shouldUpdateErstellungszeitpunkt) {
                         val updatedArtikel = firestoreArtikel.copy(
-                            // Erstellungszeitpunkt aus Firestore verwenden, da er der "Quelle der Wahrheit" ist
                             erstellungszeitpunkt = firestoreArtikel.erstellungszeitpunkt,
-                            istLokalGeaendert = false, // Ist jetzt synchronisiert
-                            istLoeschungVorgemerkt = false
+                            istLokalGeaendert = false,
+                            istLoeschungVorgemerkt = false,
+                            istOeffentlich = true
                         )
-                        artikelDao.artikelEinfuegen(updatedArtikel) // Verwende einfuegen, da @Insert(onConflict = REPLACE) ein Update durchfuehrt
-                        Timber.d("Sync Pull: Artikel ${updatedArtikel.name} (ID: ${updatedArtikel.artikelId}) von Firestore in Room AKTUALISIERT (Firestore neuer ODER erstellungszeitpunkt aktualisiert). Erstellungszeitpunkt in Room: ${updatedArtikel.erstellungszeitpunkt}.")
+                        artikelDao.artikelEinfuegen(updatedArtikel)
+                        Timber.d("$TAG: Sync Pull: Artikel ${updatedArtikel.name} (ID: ${updatedArtikel.artikelId}) von Firestore in Room AKTUALISIERT (Firestore neuer ODER erstellungszeitpunkt aktualisiert). Erstellungszeitpunkt in Room: ${updatedArtikel.erstellungszeitpunkt}, IstOeffentlich: ${updatedArtikel.istOeffentlich}, IstEingekauft: ${updatedArtikel.istEingekauft}.")
                     } else {
-                        Timber.d("Sync Pull: Lokaler Artikel ${lokalerArtikel.name} (ID: ${lokalerArtikel.artikelId}) ist aktueller oder gleich, oder Firestore-Version ist nicht neuer. KEINE AKTUALISIERUNG von Firestore.")
+                        Timber.d("$TAG: Sync Pull: Lokaler Artikel ${lokalerArtikel.name} (ID: ${lokalerArtikel.artikelId}) ist aktueller oder gleich, oder Firestore-Version ist nicht neuer. KEINE AKTUALISIERUNG von Firestore.")
                     }
                 }
             }
 
-            // 5. Lokale Artikel finden, die in Firestore nicht mehr existieren und lokal NICHT zur Loeschung vorgemerkt sind
             val firestoreArtikelIds = firestoreArtikelList.map { it.artikelId }.toSet()
 
             for (localArtikel in allLocalArtikel) {
-                // Hinzugefuegt: Schutz fuer lokal geaenderte Elemente
                 if (localArtikel.artikelId.isNotEmpty() && !firestoreArtikelIds.contains(localArtikel.artikelId) &&
-                    !localArtikel.istLoeschungVorgemerkt && !localArtikel.istLokalGeaendert) { // <-- WICHTIGE HINZUFUEGUNG
+                    !localArtikel.istLoeschungVorgemerkt && !localArtikel.istLokalGeaendert && localArtikel.istOeffentlich) {
                     artikelDao.deleteArtikelById(localArtikel.artikelId)
-                    Timber.d("Sync Pull: Lokaler Artikel ${localArtikel.name} (ID: ${localArtikel.artikelId}) GELÖSCHT, da nicht mehr in Firestore vorhanden und lokal NICHT zur Loeschung vorgemerkt UND NICHT lokal geaendert war.")
+                    Timber.d("$TAG: Sync Pull: Lokaler Artikel ${localArtikel.name} (ID: ${localArtikel.artikelId}) GELÖSCHT, da nicht mehr in Firestore vorhanden und lokal NICHT zur Loeschung vorgemerkt UND NICHT lokal geaendert UND istOeffentlich war.")
+                } else if (!localArtikel.istOeffentlich) {
+                    Timber.d("$TAG: Sync Pull: Lokaler Artikel ${localArtikel.name} (ID: ${localArtikel.artikelId}) ist persoenlich (istOeffentlich=false) und nicht in Firestore. Bleibt lokal erhalten.")
                 }
             }
-            Timber.d("Sync Pull: Pull-Synchronisation der Artikeldaten abgeschlossen.")
+            Timber.d("$TAG: Sync Pull: Pull-Synchronisation der Artikeldaten abgeschlossen.")
         } catch (e: Exception) {
-            Timber.e(e, "Sync Pull: FEHLER beim Herunterladen und Synchronisieren von Artikeln von Firestore: ${e.message}")
+            Timber.e(e, "$TAG: Sync Pull: FEHLER beim Herunterladen und Synchronisieren von Artikeln von Firestore: ${e.message}")
         }
+    }
+
+    /**
+     * Kaskadiert das istOeffentlich-Flag auf Produkt, Kategorie, Geschaeft und ProduktGeschaeftVerbindung.
+     * Dies geschieht, wenn ein Artikel einer oeffentlichen Einkaufsliste zugeordnet wird.
+     */
+    private suspend fun kaskadiereOeffentlichFlags(artikel: ArtikelEntitaet) {
+        // Sicherstellen, dass produktId nicht null ist, bevor wir fortfahren
+        val produktId = artikel.produktId
+        if (produktId == null) {
+            Timber.w("$TAG: Artikel '${artikel.artikelId}' hat keine Produkt-ID. Kaskadierung unmoeglich.")
+            return
+        }
+
+        Timber.d("$TAG: Starte Kaskadierung fuer Artikel: ${artikel.artikelId} (Produkt-ID: ${produktId}).")
+
+        // 1. Produkt oeffentlich machen
+        val produkt = produktRepository.getProduktById(produktId).firstOrNull()
+        if (produkt != null && !produkt.istOeffentlich) {
+            val updatedProdukt = produkt.copy(istOeffentlich = true, istLokalGeaendert = true, zuletztGeaendert = Date())
+            produktRepository.produktSpeichern(updatedProdukt)
+            Timber.d("$TAG: Produkt '${produkt.name}' (ID: ${produkt.produktId}) auf istOeffentlich=true gesetzt.")
+
+            // 2. Kategorie des Produkts oeffentlich machen
+            val kategorieId = produkt.kategorieId
+            if (kategorieId != null) { // Null-Pruefung fuer kategorieId
+                val kategorie = kategorieRepository.getKategorieById(kategorieId).firstOrNull()
+                if (kategorie != null && !kategorie.istOeffentlich) {
+                    val updatedKategorie = kategorie.copy(istOeffentlich = true, istLokalGeaendert = true, zuletztGeaendert = Date())
+                    kategorieRepository.kategorieSpeichern(updatedKategorie)
+                    Timber.d("$TAG: Kategorie '${kategorie.name}' (ID: ${kategorie.kategorieId}) auf istOeffentlich=true gesetzt.")
+                } else if (kategorie == null) {
+                    Timber.w("$TAG: Kategorie fuer Produkt '${produkt.name}' (ID: ${produkt.produktId}) nicht gefunden.")
+                } else {
+                    Timber.d("$TAG: Kategorie '${kategorie.name}' (ID: ${kategorie.kategorieId}) ist bereits oeffentlich.")
+                }
+            } else {
+                Timber.d("$TAG: Produkt '${produkt.name}' (ID: ${produkt.produktId}) hat keine Kategorie-ID. Keine Kaskadierung zur Kategorie.")
+            }
+
+
+            // 3. Alle ProduktGeschaeftVerbindungen und zugehoerige Geschaefte oeffentlich machen
+            val verbindungen = produktGeschaeftVerbindungRepository.getVerbindungenByProduktId(produktId).firstOrNull() ?: emptyList()
+            if (verbindungen.isNotEmpty()) {
+                Timber.d("$TAG: ${verbindungen.size} ProduktGeschaeftVerbindungen fuer Produkt '${produkt.name}' gefunden.")
+                for (verbindung in verbindungen) {
+                    if (!verbindung.istOeffentlich) {
+                        val updatedVerbindung = verbindung.copy(istOeffentlich = true, istLokalGeaendert = true, zuletztGeaendert = Date())
+                        produktGeschaeftVerbindungRepository.verbindungSpeichern(updatedVerbindung)
+                        Timber.d("$TAG: ProduktGeschaeftVerbindung (Produkt: ${produktId}, Geschaeft: ${verbindung.geschaeftId}) auf istOeffentlich=true gesetzt.")
+                    } else {
+                        Timber.d("$TAG: ProduktGeschaeftVerbindung (Produkt: ${produktId}, Geschaeft: ${verbindung.geschaeftId}) ist bereits oeffentlich.")
+                    }
+
+                    // Zugehoeriges Geschaeft oeffentlich machen
+                    val geschaeft = geschaeftRepository.getGeschaeftById(verbindung.geschaeftId).firstOrNull()
+                    if (geschaeft != null && !geschaeft.istOeffentlich) {
+                        val updatedGeschaeft = geschaeft.copy(istOeffentlich = true, istLokalGeaendert = true, zuletztGeaendert = Date())
+                        geschaeftRepository.geschaeftSpeichern(updatedGeschaeft)
+                        Timber.d("$TAG: Geschaeft '${geschaeft.name}' (ID: ${geschaeft.geschaeftId}) auf istOeffentlich=true gesetzt.")
+                    } else if (geschaeft == null) {
+                        Timber.w("$TAG: Geschaeft fuer ProduktGeschaeftVerbindung (Produkt: ${produktId}, Geschaeft: ${verbindung.geschaeftId}) nicht gefunden.")
+                    } else {
+                        Timber.d("$TAG: Geschaeft '${geschaeft.name}' (ID: ${geschaeft.geschaeftId}) ist bereits oeffentlich.")
+                    }
+                }
+            } else {
+                Timber.d("$TAG: Keine ProduktGeschaeftVerbindungen fuer Produkt '${produkt.name}' gefunden.")
+            }
+
+        } else if (produkt == null) {
+            Timber.w("$TAG: Produkt mit ID ${produktId} fuer Artikel ${artikel.artikelId} nicht gefunden. Kaskadierung unmoeglich.")
+        } else {
+            Timber.d("$TAG: Produkt '${produkt.name}' (ID: ${produkt.produktId}) ist bereits oeffentlich. Keine Kaskadierung ueber dieses Produkt.")
+        }
+        Timber.d("$TAG: Kaskadierung fuer Artikel: ${artikel.artikelId} abgeschlossen.")
     }
 
     /**

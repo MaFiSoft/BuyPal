@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/KategorieEntitaet.kt
-// Stand: 2025-06-07_22:30:00, Codezeilen: 39
+// Stand: 2025-06-15_04:18:00, Codezeilen: 40 (istOeffentlich-Flag hinzugefuegt - in Ihre Vorlage integriert)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -7,7 +7,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.ServerTimestamp
-import com.google.firebase.firestore.Exclude // Import für @Exclude
+import com.google.firebase.firestore.Exclude // Import fuer @Exclude
 import java.util.Date
 
 /**
@@ -24,6 +24,7 @@ import java.util.Date
  * @param icon Optional: Fuer ein Icon, das die Kategorie darstellt.
  * @param erstellungszeitpunkt Zeitstempel der Erstellung (Firestore ServerTimestamp).
  * @param zuletztGeaendert Zeitstempel der letzten Aenderung, um Konflikte zu loesen und Sync-Bedarf zu erkennen.
+ * @param istOeffentlich NEU: Flag, das angibt, ob die Kategorie oeffentlich/synchronisiert ist (true) oder persoenlich/lokal (false). Standard ist false (persoenlich).
  * @param istLokalGeaendert Flag, das anzeigt, ob der Datensatz lokale (unsynchronisierte) Aenderungen hat.
  * @param istLoeschungVorgemerkt Flag, das anzeigt, ob der Datensatz lokal geloescht wurde, aber noch in Firestore geloescht werden muss.
  */
@@ -42,6 +43,7 @@ data class KategorieEntitaet(
     val erstellungszeitpunkt: Date? = null,
     // Felder für Room-first und Sync-Logik (Goldstandard)
     val zuletztGeaendert: Date? = null, // Zeitstempel fuer Last-Write-Wins (wird manuell/automatisch gesetzt)
+    val istOeffentlich: Boolean = false, // NEU: Flag fuer persoenliche vs. oeffentliche/synchronisierte Daten
     @get:Exclude // KORRIGIERT: @get:Exclude verwenden, um Feld von Firestore-Serialisierung auszuschließen
     val istLokalGeaendert: Boolean = false, // Flag, um zu wissen, ob Sync noetig ist
     @get:Exclude // KORRIGIERT: @get:Exclude verwenden, um Feld von Firestore-Serialisierung auszuschließen

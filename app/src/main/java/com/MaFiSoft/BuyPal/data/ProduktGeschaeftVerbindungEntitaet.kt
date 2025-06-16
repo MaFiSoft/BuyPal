@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/ProduktGeschaeftVerbindungEntitaet.kt
-// Stand: 2025-06-12_21:00:00, Codezeilen: 38 (Angepasst an Goldstandard Soft-Delete, @DocumentId entfernt)
+// Stand: 2025-06-15_04:22:00, Codezeilen: 39 (istOeffentlich-Flag hinzugefuegt - in Ihre Vorlage integriert)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -7,7 +7,6 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
 import androidx.room.Index
-// import com.google.firebase.firestore.DocumentId // ENTFERNT: Nicht notwendig fuer kombinierte Primaerschluessel/manuelle Firestore-ID-Erstellung
 import com.google.firebase.firestore.ServerTimestamp
 import com.google.firebase.firestore.Exclude // Import fuer @Exclude
 import java.util.Date
@@ -43,6 +42,7 @@ data class ProduktGeschaeftVerbindungEntitaet(
     @ServerTimestamp
     val erstellungszeitpunkt: Date? = null,
     val zuletztGeaendert: Date? = null,
+    val istOeffentlich: Boolean = false, // NEU: Flag fuer persoenliche vs. oeffentliche/synchronisierte Daten
     @get:Exclude // KORRIGIERT: @get:Exclude verwenden, um Feld von Firestore-Serialisierung auszuschliessen
     val istLokalGeaendert: Boolean = false,
     @get:Exclude // KORRIGIERT: @get:Exclude verwenden, um Feld von Firestore-Serialisierung auszuschliessen

@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/ArtikelRepository.kt
-// Stand: 2025-06-03_15:15:00, Codezeilen: 20
+// Stand: 2025-06-16_08:29:00, Codezeilen: 22 (markiereArtikelAlsEingekauft hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.repository
 
@@ -14,13 +14,16 @@ import kotlinx.coroutines.flow.Flow
 interface ArtikelRepository {
     // Methoden zum Abrufen von Artikeln
     fun getArtikelById(artikelId: String): Flow<ArtikelEntitaet?>
-    fun getAllArtikel(): Flow<List<ArtikelEntitaet>> // Holt alle aktiven Artikel (nicht zur Löschung vorgemerkt)
+    fun getAllArtikel(): Flow<List<ArtikelEntitaet>> // Holt alle aktiven Artikel (nicht zur Loeschung vorgemerkt)
 
-    // Methoden zum Speichern, Aktualisieren, Löschen (Room-first, setzt Sync-Flags)
-    suspend fun artikelSpeichern(artikel: ArtikelEntitaet) // Speichert/Aktualisiert in Room und markiert für Sync
-    suspend fun artikelAktualisieren(artikel: ArtikelEntitaet) // Für explizite Aktualisierung
+    // Methoden zum Speichern, Aktualisieren, Loeschen (Room-first, setzt Sync-Flags)
+    suspend fun artikelSpeichern(artikel: ArtikelEntitaet) // Speichert/Aktualisiert in Room und markiert fuer Sync
+    suspend fun artikelAktualisieren(artikel: ArtikelEntitaet) // Fuer explizite Aktualisierung
     suspend fun artikelLoeschen(artikel: ArtikelEntitaet) // KORRIGIERT: Methode mit ArtikelEntitaet als Parameter
-    suspend fun loescheArtikel(artikelId: String) // Für endgültige Löschung (typischerweise nur vom SyncManager aufgerufen)
+    suspend fun loescheArtikel(artikelId: String) // Fuer endgueltige Loeschung (typischerweise nur vom SyncManager aufgerufen)
+
+    // NEU: Methode zum Markieren eines Artikels als 'eingekauft'
+    suspend fun markiereArtikelAlsEingekauft(artikel: ArtikelEntitaet)
 
     // Synchronisations-Logik (zentrale Methode)
     suspend fun syncArtikelDaten() // Initiiert den Sync-Prozess

@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/di/AppModule.kt
-// Stand: 2025-06-13_11:25:00, Codezeilen: 205 (Context fuer ArtikelRepositoryImpl hinzugefuegt)
+// Stand: 2025-06-16_09:25:00, Codezeilen: 213 (ArtikelRepository-Abhaengigkeiten korrigiert)
 
 package com.MaFiSoft.BuyPal.di
 
@@ -155,10 +155,24 @@ object AppModule {
     @Singleton
     fun provideArtikelRepository(
         artikelDao: ArtikelDao,
+        produktRepository: ProduktRepository, // NEU: Abhaengigkeit
+        kategorieRepository: KategorieRepository, // NEU: Abhaengigkeit
+        geschaeftRepository: GeschaeftRepository, // NEU: Abhaengigkeit
+        produktGeschaeftVerbindungRepository: ProduktGeschaeftVerbindungRepository, // NEU: Abhaengigkeit
+        einkaufslisteRepository: EinkaufslisteRepository, // NEU: Abhaengigkeit
         firestore: FirebaseFirestore,
-        @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
+        @ApplicationContext context: Context
     ): ArtikelRepository {
-        return ArtikelRepositoryImpl(artikelDao, firestore, context) // HINZUGEFUEGT: Context Parameter
+        return ArtikelRepositoryImpl(
+            artikelDao,
+            produktRepository,
+            kategorieRepository,
+            geschaeftRepository,
+            produktGeschaeftVerbindungRepository,
+            einkaufslisteRepository,
+            firestore,
+            context
+        )
     }
 
     // Bereitstellung des KategorieRepository (Interface) durch die Implementierungsklasse.

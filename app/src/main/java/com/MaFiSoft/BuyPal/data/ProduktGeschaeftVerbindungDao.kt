@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/ProduktGeschaeftVerbindungDao.kt
-// Stand: 2025-06-12_21:05:00, Codezeilen: 70 (Angepasst an Goldstandard Soft-Delete, deleteAll hinzugefügt)
+// Stand: 2025-06-16_08:48:00, Codezeilen: 83 (markiereAlleVerbindungenFuerProduktZurLoeschung hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Data Access Object (DAO) fuer die ProduktGeschaeftVerbindung.
  * Verwaltet die N:M-Beziehung zwischen Produkten und Geschaeften.
- * Angepasst an den Goldstandard von ProduktDao mit Soft-Löschlogik.
+ * Angepasst an den Goldstandard von ProduktDao mit Soft-Loeschlogik.
  */
 @Dao
 interface ProduktGeschaeftVerbindungDao {
@@ -50,22 +50,32 @@ interface ProduktGeschaeftVerbindungDao {
     fun getVerbindungById(produktId: String, geschaeftId: String): Flow<ProduktGeschaeftVerbindungEntitaet?>
 
     /**
-     * Ruft die IDs aller Geschaefte ab, die mit einem bestimmten Produkt verbunden sind
+     * Ruft die IDs aller Geschaefte ab, die mit einem bestimmten Oeffentlichen Produkt verbunden sind
      * und nicht zur Loeschung vorgemerkt sind.
      * @param produktId Die ID des Produkts.
      * @return Ein Flow, das eine Liste von Geschaefts-IDs emittiert.
      */
-    @Query("SELECT geschaeftId FROM produkt_geschaeft_verbindung WHERE produktId = :produktId AND istLoeschungVorgemerkt = 0")
+    @Query("SELECT geschaeftId FROM produkt_geschaeft_verbindung WHERE produktId = :produktId AND istLoeschungVorgemerkt = 0 AND istOeffentlich = 1")
     fun getGeschaeftIdsFuerProdukt(produktId: String): Flow<List<String>>
 
     /**
-     * Ruft die IDs aller Produkte ab, die mit einem bestimmten Geschaeft verbunden sind
+     * Ruft die IDs aller Produkte ab, die mit einem bestimmten Oeffentlichen Geschaeft verbunden sind
      * und nicht zur Loeschung vorgemerkt sind.
      * @param geschaeftId Die ID des Geschaefts.
      * @return Ein Flow, das eine Liste von Produkt-IDs emittiert.
      */
-    @Query("SELECT produktId FROM produkt_geschaeft_verbindung WHERE geschaeftId = :geschaeftId AND istLoeschungVorgemerkt = 0")
+    @Query("SELECT produktId FROM produkt_geschaeft_verbindung WHERE geschaeftId = :geschaeftId AND istLoeschungVorgemerkt = 0 AND istOeffentlich = 1")
     fun getProduktIdsFuerGeschaeft(geschaeftId: String): Flow<List<String>>
+
+    /**
+     * Ruft ALLE Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Produkt ab,
+     * unabhaengig von ihren Synchronisations-Flags und dem istOeffentlich-Flag.
+     * Dies wird fuer die Kaskadierung benoetigt.
+     * @param produktId Die ID des Produkts, fuer das die Verbindungen abgerufen werden sollen.
+     * @return Ein Flow, das eine Liste von ProduktGeschaeftVerbindungEntitaet emittiert.
+     */
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE produktId = :produktId")
+    fun getVerbindungenByProduktId(produktId: String): Flow<List<ProduktGeschaeftVerbindungEntitaet>>
 
     /**
      * Merkt alle Verbindungen fuer ein bestimmtes Produkt zur Loeschung vor (Soft Delete).
@@ -74,36 +84,37 @@ interface ProduktGeschaeftVerbindungDao {
      * @param produktId Die ID des Produkts, fuer das alle Verbindungen zur Loeschung vorgemerkt werden sollen.
      */
     @Query("UPDATE produkt_geschaeft_verbindung SET istLoeschungVorgemerkt = 1, istLokalGeaendert = 1 WHERE produktId = :produktId")
-    suspend fun markiereAlleVerbindungenFuerProduktZurLoeschung(produktId: String)
+    suspend fun markiereAlleVerbindungenFuerProduktZurLoeschung(produktId: String) // Hinzugefuegt!
 
     /**
-     * Holt alle Produkt-Geschaeft-Verbindungen, die NICHT zur Loeschung vorgemerkt sind.
+     * Holt alle Oeffentlichen Produkt-Geschaeft-Verbindungen, die NICHT zur Loeschung vorgemerkt sind.
      * @return Ein Flow, das eine Liste aller nicht vorgemerkten Verbindungen emittiert.
      */
-    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLoeschungVorgemerkt = 0")
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLoeschungVorgemerkt = 0 AND istOeffentlich = 1")
     fun getAllVerbindungen(): Flow<List<ProduktGeschaeftVerbindungEntitaet>>
 
     /**
-     * Holt ALLE Produkt-Geschaeft-Verbindungen, auch die zur Loeschung vorgemerkten (fuer interne Sync-Logik noetig).
+     * Holt ALLE Produkt-Geschaeft-Verbindungen, auch die zur Loeschung vorgemerkten (fuer interne Sync-Logik noetig),
+     * unabhaengig vom istOeffentlich-Flag.
      * @return Eine Liste aller Verbindungen, einschliesslich der zur Loeschung vorgemerkten.
      */
     @Query("SELECT * FROM produkt_geschaeft_verbindung")
     suspend fun getAllVerbindungenIncludingMarkedForDeletion(): List<ProduktGeschaeftVerbindungEntitaet>
 
     /**
-     * Holt alle Produkt-Geschaeft-Verbindungen, die lokal geaendert wurden und noch nicht zur Loeschung vorgemerkt sind.
+     * Holt alle Oeffentlichen Produkt-Geschaeft-Verbindungen, die lokal geaendert wurden und noch nicht zur Loeschung vorgemerkt sind.
      * Diese muessen mit Firestore synchronisiert werden.
      * @return Eine Liste von unsynchronisierten Verbindungen.
      */
-    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0 AND istOeffentlich = 1")
     suspend fun getUnsynchronisierteVerbindungen(): List<ProduktGeschaeftVerbindungEntitaet>
 
     /**
-     * Holt alle Produkt-Geschaeft-Verbindungen, die zur Loeschung vorgemerkt sind.
+     * Holt alle Oeffentlichen Produkt-Geschaeft-Verbindungen, die zur Loeschung vorgemerkt sind.
      * Diese muessen aus Firestore geloescht werden.
      * @return Eine Liste von Verbindungen, die zur Loeschung vorgemerkt sind.
      */
-    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLoeschungVorgemerkt = 1")
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLoeschungVorgemerkt = 1 AND istOeffentlich = 1")
     suspend fun getVerbindungenFuerLoeschung(): List<ProduktGeschaeftVerbindungEntitaet>
 
     /**

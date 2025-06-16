@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/ProduktGeschaeftVerbindungRepository.kt
-// Stand: 2025-06-11_23:15:00, Codezeilen: 44 (Zurueckgesetzt auf Anfang des Chats und Goldstandard)
+// Stand: 2025-06-16_08:35:00, Codezeilen: 47 (getVerbindungenByProduktId hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.repository
 
@@ -41,6 +41,14 @@ interface ProduktGeschaeftVerbindungRepository {
      * @return Ein Flow, das eine Liste von Produkt-IDs emittiert.
      */
     fun getProduktIdsFuerGeschaeft(geschaeftId: String): Flow<List<String>>
+
+    /**
+     * Ruft ALLE Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Produkt ab,
+     * unabhaengig von ihren Synchronisations-Flags. Dies wird fuer die Kaskadierung benoetigt.
+     * @param produktId Die ID des Produkts, fuer das die Verbindungen abgerufen werden sollen.
+     * @return Ein Flow, das eine Liste von ProduktGeschaeftVerbindungEntitaet emittiert.
+     */
+    fun getVerbindungenByProduktId(produktId: String): Flow<List<ProduktGeschaeftVerbindungEntitaet>> // NEU
 
     /**
      * Ruft alle Produkt-Geschaeft-Verbindungen ab, die nicht zur Loeschung vorgemerkt sind.

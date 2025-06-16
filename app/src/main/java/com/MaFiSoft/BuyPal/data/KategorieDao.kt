@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/KategorieDao.kt
-// Stand: 2025-06-07_22:35:00, Codezeilen: 50
+// Stand: 2025-06-15_04:35:00, Codezeilen: 54 (istOeffentlich-Filterung hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -41,11 +41,11 @@ interface KategorieDao {
     fun getKategorieById(kategorieId: String): Flow<KategorieEntitaet?>
 
     /**
-     * Ruft alle Kategorien ab, die NICHT zur Loeschung vorgemerkt sind.
+     * Ruft alle Oeffentlichen Kategorien ab, die NICHT zur Loeschung vorgemerkt sind.
      * Sortiert die Kategorien alphabetisch nach ihrem Namen.
      * @return Ein Flow, der eine Liste von Kategorie-Entitaeten emittiert.
      */
-    @Query("SELECT * FROM kategorie WHERE istLoeschungVorgemerkt = 0 ORDER BY name ASC")
+    @Query("SELECT * FROM kategorie WHERE istLoeschungVorgemerkt = 0 AND istOeffentlich = 1 ORDER BY name ASC")
     fun getAllKategorien(): Flow<List<KategorieEntitaet>>
 
     /**
@@ -57,20 +57,18 @@ interface KategorieDao {
     suspend fun getAllKategorienIncludingMarkedForDeletion(): List<KategorieEntitaet>
 
     /**
-     * Ruft alle Kategorien ab, die lokal geaendert, aber noch nicht synchronisiert wurden.
-     * (Angepasst an den Goldstandard von BenutzerDao: Auch zur Loeschung vorgemerkte, aber noch nicht
-     * synchronisierte Eintraege werden als 'unsynchronisiert' betrachtet).
+     * Ruft alle Oeffentlichen Kategorien ab, die lokal geaendert, aber noch nicht synchronisiert wurden.
      * @return Eine Liste von Kategorie-Entitaeten, die synchronisiert werden muessen.
      */
-    @Query("SELECT * FROM kategorie WHERE istLokalGeaendert = 1") // KORRIGIERT: 'AND istLoeschungVorgemerkt = 0' entfernt
+    @Query("SELECT * FROM kategorie WHERE istLokalGeaendert = 1 AND istOeffentlich = 1")
     suspend fun getUnsynchronisierteKategorien(): List<KategorieEntitaet>
 
     /**
-     * Ruft alle Kategorien ab, die zur Loeschung vorgemerkt sind.
+     * Ruft alle Oeffentlichen Kategorien ab, die zur Loeschung vorgemerkt sind.
      * Diese warten auf die Synchronisierung der Loeschung mit der Cloud-Datenbank.
      * @return Eine Liste von Kategorie-Entitaeten, die zur Loeschung vorgemerkt sind.
      */
-    @Query("SELECT * FROM kategorie WHERE istLoeschungVorgemerkt = 1")
+    @Query("SELECT * FROM kategorie WHERE istLoeschungVorgemerkt = 1 AND istOeffentlich = 1")
     suspend fun getKategorienFuerLoeschung(): List<KategorieEntitaet>
 
     /**
@@ -83,9 +81,6 @@ interface KategorieDao {
 
     /**
      * Loescht alle Kategorien aus der Datenbank.
-     * (Diese Methode ist in BenutzerDao nicht explizit vorhanden, aber fuer Tests/Bereinigung nuetzlich.
-     * Sie wird beibehalten, da sie keine direkte Inkonsistenz im Verhalten darstellt, sondern zusaetzliche
-     * Funktionalitaet bietet).
      */
     @Query("DELETE FROM kategorie")
     suspend fun deleteAllKategorien()
