@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/di/AppModule.kt
-// Stand: 2025-06-16_09:25:00, Codezeilen: 213 (ArtikelRepository-Abhaengigkeiten korrigiert)
+// Stand: 2025-06-16_11:20:00, Codezeilen: 228 (EinkaufslisteViewModel-Abhaengigkeiten korrigiert)
 
 package com.MaFiSoft.BuyPal.di
 
@@ -14,7 +14,7 @@ import com.MaFiSoft.BuyPal.data.EinkaufslisteDao
 import com.MaFiSoft.BuyPal.data.GruppeDao
 import com.MaFiSoft.BuyPal.data.ProduktDao
 import com.MaFiSoft.BuyPal.data.GeschaeftDao
-import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungDao // Import fuer ProduktGeschaeftVerbindungDao
+import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungDao
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.auth.FirebaseAuth
@@ -40,9 +40,10 @@ import com.MaFiSoft.BuyPal.repository.impl.ProduktRepositoryImpl
 import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
 import com.MaFiSoft.BuyPal.repository.impl.GeschaeftRepositoryImpl
 
-import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository // Import fuer ProduktGeschaeftVerbindungRepository
-import com.MaFiSoft.BuyPal.repository.impl.ProduktGeschaeftVerbindungRepositoryImpl // Import fuer ProduktGeschaeftVerbindungRepositoryImpl
+import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository
+import com.MaFiSoft.BuyPal.repository.impl.ProduktGeschaeftVerbindungRepositoryImpl
 
+import com.MaFiSoft.BuyPal.presentation.viewmodel.EinkaufslisteViewModel // Hinzugefuegt: Import fuer EinkaufslisteViewModel
 
 import dagger.Module
 import dagger.Provides
@@ -155,11 +156,11 @@ object AppModule {
     @Singleton
     fun provideArtikelRepository(
         artikelDao: ArtikelDao,
-        produktRepository: ProduktRepository, // NEU: Abhaengigkeit
-        kategorieRepository: KategorieRepository, // NEU: Abhaengigkeit
-        geschaeftRepository: GeschaeftRepository, // NEU: Abhaengigkeit
-        produktGeschaeftVerbindungRepository: ProduktGeschaeftVerbindungRepository, // NEU: Abhaengigkeit
-        einkaufslisteRepository: EinkaufslisteRepository, // NEU: Abhaengigkeit
+        produktRepository: ProduktRepository,
+        kategorieRepository: KategorieRepository,
+        geschaeftRepository: GeschaeftRepository,
+        produktGeschaeftVerbindungRepository: ProduktGeschaeftVerbindungRepository,
+        einkaufslisteRepository: EinkaufslisteRepository,
         firestore: FirebaseFirestore,
         @ApplicationContext context: Context
     ): ArtikelRepository {
@@ -195,7 +196,12 @@ object AppModule {
         firestore: FirebaseFirestore,
         @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): EinkaufslisteRepository {
-        return EinkaufslisteRepositoryImpl(einkaufslisteDao, gruppeDao, firestore, context) // HINZUGEFUEGT: gruppeDao, context
+        return EinkaufslisteRepositoryImpl(
+            einkaufslisteDao,
+            gruppeDao,
+            firestore,
+            context
+        ) // HINZUGEFUEGT: gruppeDao, context
     }
 
     // NEU: Bereitstellung des GruppeRepository (Interface) durch die Implementierungsklasse.
@@ -218,7 +224,12 @@ object AppModule {
         firestore: FirebaseFirestore,
         @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): ProduktRepository {
-        return ProduktRepositoryImpl(produktDao, kategorieDao, firestore, context) // HINZUGEFUEGT: kategorieDao Parameter
+        return ProduktRepositoryImpl(
+            produktDao,
+            kategorieDao,
+            firestore,
+            context
+        ) // HINZUGEFUEGT: kategorieDao Parameter
     }
 
     // NEU: Bereitstellung des GeschaeftRepository (Interface) durch die Implementierungsklasse.
@@ -240,6 +251,20 @@ object AppModule {
         firestore: FirebaseFirestore,
         @ApplicationContext context: Context // HINZUGEFUEGT: Context fuer isOnline()
     ): ProduktGeschaeftVerbindungRepository {
-        return ProduktGeschaeftVerbindungRepositoryImpl(produktGeschaeftVerbindungDao, firestore, context)
+        return ProduktGeschaeftVerbindungRepositoryImpl(
+            produktGeschaeftVerbindungDao,
+            firestore,
+            context
+        )
+    }
+
+    // HINZUGEFUEGT: Bereitstellung des EinkaufslisteViewModel (Interface) durch die Implementierungsklasse.
+    @Provides
+    @Singleton
+    fun provideEinkaufslisteViewModel( // NEU: Provider für das ViewModel
+        einkaufslisteRepository: EinkaufslisteRepository,
+        gruppeRepository: GruppeRepository // NEU: GruppeRepository als Abhängigkeit
+    ): EinkaufslisteViewModel {
+        return EinkaufslisteViewModel(einkaufslisteRepository, gruppeRepository)
     }
 }

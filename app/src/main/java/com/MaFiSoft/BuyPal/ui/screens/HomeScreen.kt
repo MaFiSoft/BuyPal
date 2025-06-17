@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/HomeScreen.kt
-// Stand: 2025-06-12_22:05:00, Codezeilen: 128 (Button fuer ProduktGeschaeftVerbindung hinzugefuegt)
+// Stand: 2025-06-17_12:15:00, Codezeilen: 128 (Einkaufslisten-Button aktiviert)
 
 package com.MaFiSoft.BuyPal.ui.screens
 
@@ -99,20 +99,19 @@ fun HomeScreen(
             ) {
                 Text("Zur Geschäftsverwaltung")
             }
-            // NEU: Button für Gruppenverwaltung
             Button(
                 onClick = { navController.navigate(Screen.GruppeVerwaltung.route) },
                 modifier = Modifier.padding(top = 8.dp)
             ) {
                 Text("Zur Gruppenverwaltung")
             }
+            // HINZUGEFÜGT: Einkaufslistenverwaltung Button aktiviert & Text angepasst
             Button(
-                onClick = { /* navController.navigate(Screen.EinkaufslisteVerwaltung.route) */ },
+                onClick = { navController.navigate(Screen.EinkaufslisteVerwaltung.route) },
                 modifier = Modifier.padding(top = 8.dp)
             ) {
-                Text("Zur Einkaufslistenverwaltung (bald)")
+                Text("Zur Einkaufslistenverwaltung")
             }
-            // NEU: Button für Produkt-Geschäft-Verbindungen Test
             Button(
                 onClick = { navController.navigate(Screen.ProduktGeschaeftVerbindung.route) },
                 modifier = Modifier.padding(top = 8.dp)
