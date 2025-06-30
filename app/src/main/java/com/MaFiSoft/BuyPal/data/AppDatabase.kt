@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/AppDatabase.kt
-// Stand: 2025-06-06_00:10:00, Codezeilen: 72
+// Stand: 2025-06-20_22:00:00, Codezeilen: 72 (Version erhoeht auf 37)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -27,16 +27,16 @@ import com.MaFiSoft.BuyPal.data.GruppeDao
 import com.MaFiSoft.BuyPal.data.ProduktDao
 import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungDao
 
-// KORRIGIERTER IMPORT für den Converter:
+// KORRIGIERTER IMPORT fuer den Converter:
 import com.MaFiSoft.BuyPal.data.Converters
 
 /**
- * Room-Datenbankklasse für BuyPal.
- * Definiert die Datenbankversion und listet alle Entitäten auf.
- * Stellt die DAOs für den Datenzugriff bereit.
+ * Room-Datenbankklasse fuer BuyPal.
+ * Definiert die Datenbankversion und listet alle Entitaeten auf.
+ * Stellt die DAOs fuer den Datenzugriff bereit.
  *
- * Beachten Sie den Speicherort des Schemas für Room-Migrationen:
- * Das wurde bereits in den Projekteinstellungen durch 'room.schemaLocation' hinzugefügt.
+ * Beachten Sie den Speicherort des Schemas fuer Room-Migrationen:
+ * Das wurde bereits in den Projekteinstellungen durch 'room.schemaLocation' hinzugefuegt.
  */
 @Database(
     entities = [
@@ -49,7 +49,7 @@ import com.MaFiSoft.BuyPal.data.Converters
         ProduktEntitaet::class,
         ProduktGeschaeftVerbindungEntitaet::class
     ],
-    version = 35, // WICHTIG: Datenbankversion erhöhen bei Änderungen am Room-Schema
+    version = 39, // WICHTIG: Datenbankversion erhoehen bei Aenderungen am Room-Schema
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -64,3 +64,4 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun getProduktDao(): ProduktDao
     abstract fun getProduktGeschaeftVerbindungDao(): ProduktGeschaeftVerbindungDao
 }
+

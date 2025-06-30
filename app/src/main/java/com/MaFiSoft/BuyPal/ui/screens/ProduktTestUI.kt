@@ -1,229 +1,213 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/ProduktTestUI.kt
-// Stand: 2025-06-12_13:30:00, Codezeilen: 415 (Erweiterte Diagnose-Logs hinzugefuegt)
-
-@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class) // <-- Diese Zeile hinzufuegen
+// Stand: 2025-06-24_04:15:00, Codezeilen: ~270 (istOeffentlich entfernt, Design und Logik angepasst)
 
 package com.MaFiSoft.BuyPal.ui.screens
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable // Import fuer clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape // Import fuer RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Refresh // Import fuer Refresh Icon
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged // Import fuer onFocusChanged
+import androidx.compose.ui.graphics.Color // Import fuer Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.MaFiSoft.BuyPal.data.KategorieEntitaet
 import com.MaFiSoft.BuyPal.data.ProduktEntitaet
-import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungEntitaet
-import com.MaFiSoft.BuyPal.presentation.viewmodel.KategorieViewModel
 import com.MaFiSoft.BuyPal.presentation.viewmodel.ProduktViewModel
-import com.MaFiSoft.BuyPal.presentation.viewmodel.GeschaeftViewModel
-import com.MaFiSoft.BuyPal.presentation.viewmodel.ProduktGeschaeftVerbindungViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.firstOrNull
+import com.MaFiSoft.BuyPal.presentation.viewmodel.KategorieViewModel
+import com.MaFiSoft.BuyPal.presentation.viewmodel.BenutzerViewModel // NEU: Import fuer BenutzerViewModel
+import kotlinx.coroutines.flow.collectLatest // NEU: Import fuer collectLatest
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.util.UUID
-import timber.log.Timber // Import fuer Timber
-import androidx.compose.material3.HorizontalDivider
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flowOf
-
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProduktTestUI(
-    produktViewModel: ProduktViewModel = hiltViewModel(),
-    kategorieViewModel: KategorieViewModel = hiltViewModel(),
-    geschaeftViewModel: GeschaeftViewModel = hiltViewModel(),
-    produktGeschaeftVerbindungViewModel: ProduktGeschaeftVerbindungViewModel = hiltViewModel()
+    produktViewModel: ProduktViewModel = hiltViewModel(), // Default hiltViewModel
+    kategorieViewModel: KategorieViewModel = hiltViewModel(), // Default hiltViewModel
+    benutzerViewModel: BenutzerViewModel = hiltViewModel() // Injiziere BenutzerViewModel fuer erstellerId
 ) {
+    var produktName by remember { mutableStateOf("") }
+    var produktBeschreibung by remember { mutableStateOf("") }
+    var produktKategorieId by remember { mutableStateOf("") } // Hier wird die ID gespeichert
+    var expanded by remember { mutableStateOf(false) } // Zustand fuer Dropdown
+
+    // Fokus-States fuer Eingabefelder
+    var isNameFocused by remember { mutableStateOf(false) }
+    var isBeschreibungFocused by remember { mutableStateOf(false) }
+
     val alleProdukte by produktViewModel.alleProdukte.collectAsState(initial = emptyList())
     val alleKategorien by kategorieViewModel.alleKategorien.collectAsState(initial = emptyList())
-    val alleGeschaefte by produktGeschaeftVerbindungViewModel.alleGeschaefte.collectAsState(initial = emptyList())
+    val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    val produktIdInputState = remember { mutableStateOf("") }
-    val produktNameInputState = remember { mutableStateOf("") }
-    val produktBeschreibungInputState = remember { mutableStateOf("") }
-    val ausgewaehlteKategorieIdInputState = remember { mutableStateOf<String?>(null) }
-    val isEditing = remember { mutableStateOf(false) }
+    // Zustand fuer das zu bearbeitende Produkt
+    var bearbeiteProdukt by remember { mutableStateOf<ProduktEntitaet?>(null) }
 
-    var kategorieDropdownExpanded by remember { mutableStateOf(false) }
-    val geschaefteDropdownExpanded = remember { mutableStateOf(false) }
+    // Aktueller Benutzer, der fuer erstellerId benoetigt wird (fuer enable/disable des Buttons)
+    val aktuellerBenutzer by benutzerViewModel.aktuellerBenutzer.collectAsState(initial = null)
 
-    val verbundeneGeschaeftIds by produktGeschaeftVerbindungViewModel.verknuepfteGeschaeftIds.collectAsState()
+    // UI-Events vom ViewModel sammeln und als Snackbar anzeigen
+    LaunchedEffect(Unit) {
+        produktViewModel.uiEvent.collectLatest { message ->
+            snackbarHostState.showSnackbar(message)
+        }
+    }
 
-
-    LaunchedEffect(produktIdInputState.value, isEditing.value) {
-        val currentProduktId = produktIdInputState.value
-        Timber.d("DEBUG_UI_LIFECYCLE", "LaunchedEffect getriggert. ProduktID: '$currentProduktId', isEditing: ${isEditing.value}")
-
-        if (isEditing.value && currentProduktId.isNotBlank()) {
-            val produkt = produktViewModel.getProduktById(currentProduktId).firstOrNull()
-            if (produkt != null) {
-                produktNameInputState.value = produkt.name
-                produktBeschreibungInputState.value = produkt.beschreibung ?: ""
-                ausgewaehlteKategorieIdInputState.value = produkt.kategorieId
-                produktGeschaeftVerbindungViewModel.ladeVerknuepfteGeschaefte(currentProduktId)
-                Timber.d("DEBUG_UI_LIFECYCLE", "Produkt '${produkt.name}' (${produkt.produktId}) geladen und UI-Zustand aktualisiert (Bearbeiten-Modus).")
-            } else {
-                isEditing.value = false
-                produktIdInputState.value = ""
-                produktNameInputState.value = ""
-                produktBeschreibungInputState.value = ""
-                ausgewaehlteKategorieIdInputState.value = null
-                produktGeschaeftVerbindungViewModel.ladeVerknuepfteGeschaefte("")
-                Timber.w("DEBUG_UI_LIFECYCLE", "Produkt mit ID '$currentProduktId' nicht gefunden. Wechsel zu Neuanlage-Modus.")
-            }
-        } else if (!isEditing.value) {
-            produktIdInputState.value = ""
-            produktNameInputState.value = ""
-            produktBeschreibungInputState.value = ""
-            ausgewaehlteKategorieIdInputState.value = null
-            produktGeschaeftVerbindungViewModel.ladeVerknuepfteGeschaefte("")
-            Timber.d("DEBUG_UI_LIFECYCLE", "Felder fuer Neuanlage zurueckgesetzt (isEditing=false, ProduktID leer).")
+    // Effekt, um die Felder zu befüllen/leeren, wenn der Bearbeitungsmodus betreten/verlassen wird
+    LaunchedEffect(bearbeiteProdukt) {
+        if (bearbeiteProdukt == null) {
+            // Modus ist "Neues Produkt erstellen"
+            produktName = ""
+            produktBeschreibung = ""
+            produktKategorieId = ""
+            Timber.d("ProduktTestUI: Bearbeitungsmodus verlassen, Felder geleert.")
+        } else {
+            // Modus ist "Produkt bearbeiten"
+            produktName = bearbeiteProdukt!!.name
+            produktBeschreibung = bearbeiteProdukt!!.beschreibung ?: ""
+            produktKategorieId = bearbeiteProdukt!!.kategorieId ?: ""
+            Timber.d("ProduktTestUI: Bearbeitungsmodus fuer '${bearbeiteProdukt!!.name}' betreten, Felder befuellt.")
         }
     }
 
 
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(title = { Text("Produkt Test UI") })
+            TopAppBar(
+                title = { Text("Produkt Test UI") },
+                actions = {
+                    IconButton(onClick = {
+                        coroutineScope.launch {
+                            produktViewModel.syncProdukteDaten()
+                        }
+                    }) {
+                        Icon(Icons.Filled.Refresh, "Synchronisieren")
+                    }
+                }
+            )
         }
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp), // Konsistentes Padding
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Eingabefeld für Produktname
             OutlinedTextField(
-                value = produktNameInputState.value,
-                onValueChange = { produktNameInputState.value = it },
-                label = { Text("Produkt Name") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = produktBeschreibungInputState.value,
-                onValueChange = { produktBeschreibungInputState.value = it },
-                label = { Text("Beschreibung (optional)") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = alleKategorien.find { it.kategorieId == ausgewaehlteKategorieIdInputState.value }?.name ?: "Kategorie auswählen",
-                    onValueChange = { },
-                    label = { Text("Kategorie") },
-                    readOnly = true,
-                    trailingIcon = {
-                        Icon(
-                            if (kategorieDropdownExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Dropdown-Pfeil",
-                            Modifier.clickable { kategorieDropdownExpanded = !kategorieDropdownExpanded }
-                        )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { kategorieDropdownExpanded = !kategorieDropdownExpanded }
+                value = produktName,
+                onValueChange = { produktName = it },
+                label = { Text(if (isNameFocused || produktName.isNotEmpty()) "Produktname" else "Produktname eingeben") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { isNameFocused = it.isFocused }
+                    .border(
+                        width = if (isNameFocused) 2.dp else 1.dp,
+                        color = if (isNameFocused) MaterialTheme.colorScheme.primary else Color.LightGray,
+                        shape = RoundedCornerShape(8.dp)
+                    ),
+                shape = RoundedCornerShape(8.dp),
+                singleLine = true,
+                colors = TextFieldDefaults.outlinedTextFieldColors(
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                    containerColor = Color.White
                 )
-                DropdownMenu(
-                    expanded = kategorieDropdownExpanded,
-                    onDismissRequest = { kategorieDropdownExpanded = false },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    alleKategorien.forEach { kategorie ->
-                        DropdownMenuItem(
-                            text = { Text(kategorie.name) },
-                            onClick = {
-                                ausgewaehlteKategorieIdInputState.value = kategorie.kategorieId
-                                kategorieDropdownExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
+            )
             Spacer(modifier = Modifier.height(8.dp))
 
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center
+            // Eingabefeld für Beschreibung
+            OutlinedTextField(
+                value = produktBeschreibung,
+                onValueChange = { produktBeschreibung = it },
+                label = { Text(if (isBeschreibungFocused || produktBeschreibung.isNotEmpty()) "Beschreibung (optional)" else "Beschreibung eingeben") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { isBeschreibungFocused = it.isFocused }
+                    .border(
+                        width = if (isBeschreibungFocused) 2.dp else 1.dp,
+                        color = if (isBeschreibungFocused) MaterialTheme.colorScheme.primary else Color.LightGray,
+                        shape = RoundedCornerShape(8.dp)
+                    ),
+                shape = RoundedCornerShape(8.dp),
+                singleLine = true,
+                colors = TextFieldDefaults.outlinedTextFieldColors(
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                    containerColor = Color.White
+                )
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Dropdown fuer Kategorie
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        width = 1.dp,
+                        color = if (expanded) MaterialTheme.colorScheme.primary else Color.LightGray, // Blauer Rand, wenn offen
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .background(Color.White, RoundedCornerShape(8.dp)) // Hintergrund
             ) {
-                OutlinedButton(
-                    onClick = { geschaefteDropdownExpanded.value = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = produktIdInputState.value.isNotBlank()
-                ) {
-                    Timber.d("DEBUG_UI_BUTTON", "Button 'Geschaefte auswaehlen' enabled: ${produktIdInputState.value.isNotBlank()}. Current ProduktID: '${produktIdInputState.value}'")
-                    Text("Geschaefte auswaehlen (${verbundeneGeschaeftIds.size} verknuepft)")
-                    Icon(Icons.Filled.Add, contentDescription = "Geschaefte auswaehlen")
-                }
+                OutlinedTextField( // Hier OutlinedTextField statt TextField
+                    value = alleKategorien.find { it.kategorieId == produktKategorieId }?.name ?: "Kategorie auswählen",
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Kategorie (optional)") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp), // Abgerundete Ecken
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = Color.Transparent, // Border wird vom Modifier gesteuert
+                        unfocusedBorderColor = Color.Transparent,
+                        cursorColor = MaterialTheme.colorScheme.primary,
+                        containerColor = Color.White // Hintergrund weiß
+                    )
+                )
 
                 DropdownMenu(
-                    expanded = geschaefteDropdownExpanded.value,
-                    onDismissRequest = { geschaefteDropdownExpanded.value = false },
-                    modifier = Modifier.fillMaxWidth(0.9f)
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier.fillMaxWidth(0.9f) // Anpassen der Breite des Dropdowns
                 ) {
-                    if (alleGeschaefte.isEmpty()) {
-                        DropdownMenuItem(text = { Text("Keine Geschaefte verfuegbar.") }, onClick = {})
+                    if (alleKategorien.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("Keine Kategorien verfuegbar. Bitte zuerst Kategorien erstellen.") },
+                            onClick = { /* Nichts tun */ }
+                        )
                     } else {
-                        alleGeschaefte.forEach { geschaeft ->
-                            val istVerbunden = verbundeneGeschaeftIds.contains(geschaeft.geschaeftId)
+                        alleKategorien.forEach { kategorie ->
                             DropdownMenuItem(
-                                text = {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Checkbox(
-                                            checked = istVerbunden,
-                                            onCheckedChange = { istChecked ->
-                                                Timber.d("DEBUG_UI_CHECKBOX", "Checkbox fuer Geschaeft '${geschaeft.name}' (${geschaeft.geschaeftId}) geaendert zu $istChecked.")
-                                                if (produktIdInputState.value.isNotBlank()) {
-                                                    if (istChecked) {
-                                                        val neueVerbindung = ProduktGeschaeftVerbindungEntitaet(
-                                                            produktId = produktIdInputState.value,
-                                                            geschaeftId = geschaeft.geschaeftId
-                                                        )
-                                                        produktGeschaeftVerbindungViewModel.verbindungSpeichern(neueVerbindung)
-                                                        Timber.d("DEBUG_UI_CHECKBOX", "Aufruf ViewModel.verbindungSpeichern fuer Produkt '${produktIdInputState.value}' mit Geschaeft '${geschaeft.geschaeftId}'.")
-                                                    } else {
-                                                        produktGeschaeftVerbindungViewModel.verbindungZurLoeschungVormerken(
-                                                            produktIdInputState.value,
-                                                            geschaeft.geschaeftId
-                                                        )
-                                                        Timber.d("DEBUG_UI_CHECKBOX", "Aufruf ViewModel.verbindungZurLoeschungVormerken fuer Produkt '${produktIdInputState.value}' und Geschaeft '${geschaeft.geschaeftId}'.")
-                                                    }
-                                                } else {
-                                                    scope.launch {
-                                                        snackbarHostState.showSnackbar("Bitte zuerst das Produkt speichern.")
-                                                    }
-                                                    Timber.w("DEBUG_UI_CHECKBOX", "Speichern der Verbindung abgebrochen: Produkt-ID ist leer. ProduktID: '${produktIdInputState.value}'.")
-                                                }
-                                            }
-                                        )
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(geschaeft.name)
+                                text = { Text(kategorie.name) },
+                                onClick = {
+                                    produktKategorieId = kategorie.kategorieId
+                                    expanded = false
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Kategorie '${kategorie.name}' ausgewaehlt.")
                                     }
-                                },
-                                onClick = { /* Checkbox haendelt den Klick */ }
+                                }
                             )
                         }
                     }
@@ -231,173 +215,131 @@ fun ProduktTestUI(
             }
             Spacer(modifier = Modifier.height(16.dp))
 
+            // istOeffentlich-Checkbox entfernt
+
             Button(
                 onClick = {
-                    if (produktNameInputState.value.isNotBlank() && ausgewaehlteKategorieIdInputState.value != null) {
-                        val aktuelleProduktId = if (isEditing.value) {
-                            produktIdInputState.value
-                        } else {
-                            UUID.randomUUID().toString().also { newId ->
-                                produktIdInputState.value = newId
+                    coroutineScope.launch {
+                        if (produktName.isNotBlank() && aktuellerBenutzer != null) { // Name muss vorhanden sein, Benutzer muss angemeldet sein
+                            if (bearbeiteProdukt != null) {
+                                // Produkt aktualisieren
+                                val updatedProdukt = bearbeiteProdukt!!.copy(
+                                    name = produktName,
+                                    beschreibung = produktBeschreibung.takeIf { it.isNotBlank() },
+                                    kategorieId = produktKategorieId.takeIf { it.isNotBlank() }
+                                )
+                                produktViewModel.produktSpeichern(updatedProdukt) // produktSpeichern handhabt Updates
+                                bearbeiteProdukt = null // Bearbeitungsmodus beenden
+                                // Felder zuruecksetzen nach Bearbeitung
+                                produktName = ""
+                                produktBeschreibung = ""
+                                produktKategorieId = ""
+                            } else {
+                                // Neues Produkt erstellen
+                                produktViewModel.createProdukt(
+                                    name = produktName,
+                                    kategorieId = produktKategorieId.takeIf { it.isNotBlank() }
+                                )
+                                produktName = ""
+                                produktBeschreibung = ""
+                                produktKategorieId = ""
                             }
+                        } else if (produktName.isBlank()) {
+                            snackbarHostState.showSnackbar("Name des Produkts darf nicht leer sein.")
+                        } else if (aktuellerBenutzer == null) {
+                            snackbarHostState.showSnackbar("Bitte melden Sie sich an, um Produkte zu erstellen.")
                         }
-                        Timber.d("DEBUG_UI_SAVE_PROD", "Produkt speichern/aktualisieren Button geklickt. Produkt ID: '$aktuelleProduktId', Name: '${produktNameInputState.value}', Kategorie: '${ausgewaehlteKategorieIdInputState.value}'. isEditing: ${isEditing.value}.")
-
-                        val produkt = ProduktEntitaet(
-                            produktId = aktuelleProduktId,
-                            name = produktNameInputState.value,
-                            beschreibung = produktBeschreibungInputState.value.ifBlank { null },
-                            kategorieId = ausgewaehlteKategorieIdInputState.value!!
-                        )
-                        produktViewModel.produktSpeichern(produkt)
-                        val nachricht = if (isEditing.value) "Produkt '${produkt.name}' aktualisiert!" else "Produkt '${produkt.name}' hinzugefuegt!"
-                        scope.launch {
-                            snackbarHostState.showSnackbar(nachricht)
-                        }
-
-                        isEditing.value = true
-                        produktGeschaeftVerbindungViewModel.ladeVerknuepfteGeschaefte(aktuelleProduktId)
-                        Timber.d("DEBUG_UI_SAVE_PROD", "Produkt '${produkt.name}' (${produkt.produktId}) gespeichert. Jetzt im Bearbeitungsmodus. Verknuepfte Geschaefte werden geladen.")
-                    } else {
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Name und Kategorie duerfen nicht leer sein.")
-                        }
-                        Timber.w("DEBUG_UI_SAVE_PROD", "Speichern abgebrochen: Name und/oder Kategorie leer.")
                     }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                enabled = produktName.isNotBlank() && aktuellerBenutzer != null // Aktivieren, wenn Name nicht leer UND Benutzer angemeldet
             ) {
-                Text(if (isEditing.value) "Aenderungen speichern" else "Produkt hinzufuegen")
+                Text(if (bearbeiteProdukt != null) "Änderungen Speichern" else "Produkt Hinzufügen")
             }
 
-            if (isEditing.value) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = {
-                        isEditing.value = false
-                        produktIdInputState.value = ""
-                        produktNameInputState.value = ""
-                        produktBeschreibungInputState.value = ""
-                        ausgewaehlteKategorieIdInputState.value = null
-                        produktGeschaeftVerbindungViewModel.ladeVerknuepfteGeschaefte("")
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Bereit zur Neuanlage eines Produkts.")
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) // Trennlinie
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text("Gespeicherte Produkte:", style = MaterialTheme.typography.headlineSmall)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                items(alleProdukte, key = { it.produktId }) { produkt ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .background(
+                                color = Color(0xFFE3F2FD), // Helles Blau als Hintergrund
+                                shape = RoundedCornerShape(8.dp)
+                            ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column( // Changed from Row to Column for better vertical space for details
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    // Zum Bearbeiten laden
+                                    bearbeiteProdukt = produkt
+                                    // Felder manuell befuellen, da der LaunchedEffect nicht sofort triggert
+                                    produktName = produkt.name
+                                    produktBeschreibung = produkt.beschreibung ?: ""
+                                    produktKategorieId = produkt.kategorieId ?: ""
+
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Produkt '${produkt.name}' zum Bearbeiten geladen.")
+                                    }
+                                }
+                                .padding(16.dp)
+                        ) {
+                            Text("ID: ${produkt.produktId}") // Volle ID fuer Testzwecke
+                            Text("Name: ${produkt.name}")
+                            produkt.beschreibung?.let { Text("Beschreibung: $it") }
+                            val kategorieName = alleKategorien.find { it.kategorieId == produkt.kategorieId }?.name ?: "N/A"
+                            Text("Kategorie: ${kategorieName} (ID: ${produkt.kategorieId ?: "N/A"})") // Anzeige der Kategorie ID
+                            Text("Ersteller-ID: ${produkt.erstellerId}") // Volle ID fuer Testzwecke
+                            Text("Lokal geändert: ${produkt.istLokalGeaendert}")
+                            Text("Zur Löschung vorgemerkt: ${produkt.istLoeschungVorgemerkt}")
+                            produkt.erstellungszeitpunkt?.let { Text("Erstellt: ${it}") }
+                            produkt.zuletztGeaendert?.let { Text("Zuletzt geändert: ${it}") }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End // Buttons rechts ausrichten
+                            ) {
+                                // Bearbeiten-Button (Stift-Symbol)
+                                IconButton(
+                                    onClick = {
+                                        bearbeiteProdukt = produkt // Produkt zum Bearbeiten setzen
+                                        produktName = produkt.name
+                                        produktBeschreibung = produkt.beschreibung ?: ""
+                                        produktKategorieId = produkt.kategorieId ?: ""
+
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Produkt '${produkt.name}' zum Bearbeiten geladen.")
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Create, contentDescription = "Bearbeiten")
+                                }
+
+                                // Loeschen-Button (Soft Delete)
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            produktViewModel.produktZurLoeschungVormerken(produkt)
+                                        }
+                                    },
+                                    enabled = !produkt.istLoeschungVorgemerkt
+                                ) {
+                                    Text("Löschen")
+                                }
+                            }
                         }
-                        Timber.d("DEBUG_UI_RESET", "Modus zur Neuanlage zurueckgesetzt.")
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Neues Produkt anlegen")
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text("Alle Produkte:", style = MaterialTheme.typography.headlineSmall)
-            LazyColumn {
-                items(alleProdukte) { produkt ->
-                    ProduktItem(
-                        produkt = produkt,
-                        onEditClick = { bearbeiteProdukt ->
-                            produktIdInputState.value = bearbeiteProdukt.produktId
-                            isEditing.value = true
-                            produktGeschaeftVerbindungViewModel.ladeVerknuepfteGeschaefte(bearbeiteProdukt.produktId)
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Produkt '${bearbeiteProdukt.name}' zum Bearbeiten geladen.")
-                            }
-                            Timber.d("DEBUG_UI_LIST_ITEM", "Produkt '${bearbeiteProdukt.name}' zum Bearbeiten geladen (Klick auf Liste).")
-                        },
-                        onDeleteClick = {
-                            produktViewModel.produktZurLoeschungVormerken(it)
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Produkt '${it.name}' zur Loeschung vorgemerkt.")
-                            }
-                            Timber.d("DEBUG_UI_LIST_ITEM", "Produkt '${it.name}' zur Loeschung vorgemerkt (Klick auf Liste).")
-                        },
-                        kategorieViewModel = kategorieViewModel,
-                        geschaeftViewModel = geschaeftViewModel,
-                        produktGeschaeftVerbindungViewModel = produktGeschaeftVerbindungViewModel
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ProduktItem(
-    produkt: ProduktEntitaet,
-    onEditClick: (ProduktEntitaet) -> Unit,
-    onDeleteClick: (ProduktEntitaet) -> Unit,
-    kategorieViewModel: KategorieViewModel,
-    geschaeftViewModel: GeschaeftViewModel,
-    produktGeschaeftVerbindungViewModel: ProduktGeschaeftVerbindungViewModel
-) {
-    val kategorieName by remember(produkt.kategorieId) {
-        produkt.kategorieId?.let { id ->
-            kategorieViewModel.getKategorieById(id).map { it?.name }
-        } ?: MutableStateFlow(null)
-    }.collectAsState(initial = null)
-
-    val verbundeneGeschaeftNamen by remember(produkt.produktId) {
-        produktGeschaeftVerbindungViewModel.getGeschaeftIdsFuerProdukt(produkt.produktId)
-            .flatMapLatest { geschaeftIds ->
-                if (geschaeftIds.isEmpty()) {
-                    flowOf(emptyList())
-                } else {
-                    val nameFlows = geschaeftIds.map { id ->
-                        geschaeftViewModel.getGeschaeftById(id).map { it?.name }
                     }
-                    combine(nameFlows) { namesArray ->
-                        namesArray.filterNotNull().toList()
-                    }
-                }
-            }
-    }.collectAsState(initial = emptyList())
-
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = produkt.name, style = MaterialTheme.typography.titleMedium)
-                produkt.beschreibung?.let {
-                    Text(text = it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                kategorieName?.let { name ->
-                    Text(text = "Kategorie: $name", style = MaterialTheme.typography.bodySmall)
-                } ?: Text(text = "Kategorie: Unbekannt", style = MaterialTheme.typography.bodySmall)
-
-                if (verbundeneGeschaeftNamen.isNotEmpty()) {
-                    Text(text = "Geschaefte: ${verbundeneGeschaeftNamen.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
-                } else {
-                    Text(text = "Keine Geschaefte verbunden", style = MaterialTheme.typography.bodySmall)
-                }
-
-                if (produkt.istLokalGeaendert) {
-                    Text(text = "Lokal geaendert", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
-                if (produkt.istLoeschungVorgemerkt) {
-                    Text(text = "Zur Loeschung vorgemerkt", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
-            }
-            Row {
-                IconButton(onClick = { onEditClick(produkt) }) {
-                    Icon(Icons.Default.Edit, contentDescription = "Bearbeiten")
-                }
-                IconButton(onClick = { onDeleteClick(produkt) }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Loeschen")
                 }
             }
         }

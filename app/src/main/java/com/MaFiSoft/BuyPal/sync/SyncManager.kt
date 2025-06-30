@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/sync/SyncManager.kt
-// Stand: 2025-06-11_21:07:00, Codezeilen: 67
+// Stand: 2025-06-21_04:05:00, Codezeilen: 70 (kategorieRepository.syncKategorienDaten() korrigiert)
 
 package com.MaFiSoft.BuyPal.sync
 
@@ -10,7 +10,7 @@ import com.MaFiSoft.BuyPal.repository.ProduktRepository
 import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
 import com.MaFiSoft.BuyPal.repository.GruppeRepository
 import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
-import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository // NEU: Import fuer ProduktGeschaeftVerbindungRepository
+import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,57 +31,57 @@ class SyncManager @Inject constructor(
     private val geschaeftRepository: GeschaeftRepository,
     private val gruppeRepository: GruppeRepository,
     private val einkaufslisteRepository: EinkaufslisteRepository,
-    private val produktGeschaeftVerbindungRepository: ProduktGeschaeftVerbindungRepository // NEU: Injektion fuer ProduktGeschaeftVerbindungRepository
+    private val produktGeschaeftVerbindungRepository: ProduktGeschaeftVerbindungRepository
 ) {
-    private val syncScope = CoroutineScope(Dispatchers.IO)
+
+    private val TAG = "SyncManager" // Einheitlicher Tag fuer Logging
 
     /**
-     * Startet den vollstaendigen Synchronisationsprozess fuer alle relevanten Entitaeten.
-     * Dies sollte asynchron ausgefuehrt werden, da es Netzwerkoperationen beinhaltet.
+     * Startet einen vollen Synchronisationsprozess fuer alle Daten.
+     * Dies sollte in einem geeigneten CoroutineScope aufgerufen werden.
      */
     fun startFullSync() {
-        syncScope.launch {
-            Timber.d("SyncManager: Starte vollen Synchronisationsprozess.")
+        Timber.d("$TAG: Startet vollen Synchronisationsprozess...")
+        CoroutineScope(Dispatchers.IO).launch { // Verwenden Sie Dispatchers.IO fuer Netzwerk- und DB-Operationen
             try {
-                // Fuehren Sie die Synchronisationen nacheinander aus, um Abhaengigkeiten zu beruecksichtigen
-                // oder um die Last auf Firestore/Netzwerk zu steuern.
-
-                Timber.d("SyncManager: Synchronisiere Benutzerdaten...")
+                Timber.d("$TAG: Synchronisiere Benutzerdaten...")
                 benutzerRepository.syncBenutzerDaten()
-                Timber.d("SyncManager: Benutzerdaten synchronisiert.")
+                Timber.d("$TAG: Benutzerdaten synchronisiert.")
 
-                Timber.d("SyncManager: Synchronisiere Artikeldaten...")
-                artikelRepository.syncArtikelDaten()
-                Timber.d("SyncManager: Artikeldaten synchronisiert.")
-
-                Timber.d("SyncManager: Synchronisiere Kategoriedaten...")
-                kategorieRepository.syncKategorieDaten()
-                Timber.d("SyncManager: Kategoriedaten synchronisiert.")
-
-                Timber.d("SyncManager: Synchronisiere Produktdaten...")
-                produktRepository.syncProdukteDaten()
-                Timber.d("SyncManager: Produktdaten synchronisiert.")
-
-                Timber.d("SyncManager: Synchronisiere Geschaeftsdaten...")
-                geschaeftRepository.syncGeschaefteDaten()
-                Timber.d("SyncManager: Geschaeftsdaten synchronisiert.")
-
-                Timber.d("SyncManager: Synchronisiere Gruppendaten...")
+                Timber.d("$TAG: Synchronisiere Gruppendaten...")
                 gruppeRepository.syncGruppenDaten()
-                Timber.d("SyncManager: Gruppendaten synchronisiert.")
+                Timber.d("$TAG: Gruppendaten synchronisiert.")
 
-                Timber.d("SyncManager: Synchronisiere Einkaufslistendaten...")
+                Timber.d("$TAG: Synchronisiere Kategoriedaten...")
+                // KORRIGIERT: Methodennamen angepasst auf syncKategorienDaten
+                kategorieRepository.syncKategorienDaten()
+                Timber.d("$TAG: Kategoriedaten synchronisiert.")
+
+                Timber.d("$TAG: Synchronisiere Produktdaten...")
+                produktRepository.syncProdukteDaten()
+                Timber.d("$TAG: Produktdaten synchronisiert.")
+
+                Timber.d("$TAG: Synchronisiere Geschaeftsdaten...")
+                geschaeftRepository.syncGeschaefteDaten()
+                Timber.d("$TAG: Geschaeftsdaten synchronisiert.")
+
+                Timber.d("$TAG: Synchronisiere Einkaufslistendaten...")
                 einkaufslisteRepository.syncEinkaufslistenDaten()
-                Timber.d("SyncManager: Einkaufslistendaten synchronisiert.")
+                Timber.d("$TAG: Einkaufslistendaten synchronisiert.")
 
-                Timber.d("SyncManager: Synchronisiere Produkt-Geschaeft-Verbindungsdaten...") // NEU: Sync-Aufruf
-                produktGeschaeftVerbindungRepository.syncVerbindungDaten() // NEU: Sync-Aufruf
-                Timber.d("SyncManager: Produkt-Geschaeft-Verbindungsdaten synchronisiert.") // NEU: Sync-Log
+                Timber.d("$TAG: Synchronisiere Produkt-Geschaeft-Verbindungsdaten...")
+                // Bestätigt: Methode heißt syncVerbindungDaten im Interface
+                produktGeschaeftVerbindungRepository.syncProduktGeschaeftVerbindungDaten()
+                Timber.d("$TAG: Produkt-Geschaeft-Verbindungsdaten synchronisiert.")
 
-                Timber.d("SyncManager: Voller Synchronisationsprozess abgeschlossen.")
+                Timber.d("$TAG: Synchronisiere Artikeldaten...")
+                artikelRepository.syncArtikelDaten()
+                Timber.d("$TAG: Artikeldaten synchronisiert.")
+
+                Timber.d("$TAG: Voller Synchronisationsprozess abgeschlossen.")
 
             } catch (e: Exception) {
-                Timber.e(e, "SyncManager: Fehler waehrend des vollen Synchronisationsprozesses: ${e.message}")
+                Timber.e(e, "$TAG: Fehler waehrend des vollen Synchronisationsprozesses: ${e.message}")
             }
         }
     }

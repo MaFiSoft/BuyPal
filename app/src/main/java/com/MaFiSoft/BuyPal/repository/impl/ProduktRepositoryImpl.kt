@@ -1,46 +1,56 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/ProduktRepositoryImpl.kt
-// Stand: 2025-06-16_07:45:00, Codezeilen: 257 (Goldstandard Sync-Logik mit istOeffentlich-Flag)
+// Stand: 2025-06-27_12:07:03, Codezeilen: ~590 (Hinzugefuegt: getProdukteByKategorieSynchronous, isProduktLinkedToRelevantGroupViaKategorie, Pull-Sync-Logik korrigiert)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
-import android.content.Context // Import fuer Context
+import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import com.MaFiSoft.BuyPal.data.KategorieDao // NEUER IMPORT
+import com.MaFiSoft.BuyPal.data.KategorieDao
 import com.MaFiSoft.BuyPal.data.ProduktDao
 import com.MaFiSoft.BuyPal.data.ProduktEntitaet
 import com.MaFiSoft.BuyPal.repository.ProduktRepository
+import com.MaFiSoft.BuyPal.repository.BenutzerRepository
+import com.MaFiSoft.BuyPal.repository.GruppeRepository
+import com.MaFiSoft.BuyPal.repository.ArtikelRepository
+import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.firstOrNull // Fuer das Abrufen eines einzelnen Elements
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.util.Date
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
  * Implementierung des Produkt-Repository.
  * Verwaltet Produktdaten lokal (Room) und in der Cloud (Firestore) nach dem Room-first-Ansatz.
- * Dieser Code implementiert den neuen "Goldstandard" fuer Push-Pull-Synchronisation.
- * Die ID-Generierung erfolgt NICHT in dieser Methode, sondern muss vor dem Aufruf des Speicherns erfolgen.
+ * Dieser Code implementiert den neuen "Goldstandard" fuer Push-Pull-Synchronisation,
+ * basierend auf Gruppenzugehoerigkeit.
  */
 @Singleton
 class ProduktRepositoryImpl @Inject constructor(
-    private val produktDao: ProduktDao,
-    private val kategorieDao: KategorieDao, // NEUE ABHAENGIGKEIT: Fuer Fremdschluesselpruefung
+    val produktDao: ProduktDao, // Als val, damit es von Erweiterungsfunktionen genutzt werden kann
+    private val kategorieDao: KategorieDao,
     private val firestore: FirebaseFirestore,
-    private val context: Context // Hinzugefuegt fuer isOnline()
+    private val context: Context,
+    private val benutzerRepositoryProvider: Provider<BenutzerRepository>,
+    private val gruppeRepositoryProvider: Provider<GruppeRepository>,
+    private val artikelRepositoryProvider: Provider<ArtikelRepository>,
+    private val einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository>
 ) : ProduktRepository {
 
     private val ioScope = CoroutineScope(Dispatchers.IO)
-    private val firestoreCollection = firestore.collection("produkte") // Firestore-Sammlung fuer Produkte
-    private val TAG = "DEBUG_REPO" // Einheitlicher Tag fuer dieses Repository
+    private val firestoreCollection = firestore.collection("produkte")
+    private val TAG = "DEBUG_REPO_PRODUKT"
 
-    // Init-Block: Stellt sicher, dass initial Produkte aus Firestore in Room sind (Pull-Sync).
     init {
         ioScope.launch {
             Timber.d("$TAG: Initialer Sync: Starte Pull-Synchronisation der Produktdaten (aus Init-Block).")
@@ -53,65 +63,34 @@ class ProduktRepositoryImpl @Inject constructor(
 
     override suspend fun produktSpeichern(produkt: ProduktEntitaet) {
         Timber.d("$TAG: Versuche Produkt lokal zu speichern/aktualisieren: ${produkt.name} (ID: ${produkt.produktId})")
-
-        // Zuerst versuchen, ein bestehendes Produkt abzurufen, um erstellungszeitpunkt und istOeffentlich zu erhalten
         val existingProdukt = produktDao.getProduktById(produkt.produktId).firstOrNull()
-        Timber.d("$TAG: produktSpeichern: Bestehendes Produkt im DAO gefunden: ${existingProdukt != null}. Erstellungszeitpunkt (existing): ${existingProdukt?.erstellungszeitpunkt}, ZuletztGeaendert (existing): ${existingProdukt?.zuletztGeaendert}, IstOeffentlich (existing): ${existingProdukt?.istOeffentlich}")
 
         val produktToSave = produkt.copy(
-            // erstellungszeitpunkt bleibt NULL fuer neue Eintraege, damit Firestore ihn setzt.
-            // Nur wenn ein bestehendes Produkt existiert, seinen erstellungszeitpunkt beibehalten.
-            erstellungszeitpunkt = existingProdukt?.erstellungszeitpunkt,
-            // istOeffentlich wird vom uebergebenen Produkt uebernommen oder aus existingProdukt,
-            // die Logik zum Setzen auf TRUE kommt vom ArtikelRepositoryImpl
-            istOeffentlich = produkt.istOeffentlich, // Wichtig: Den uebergebenen Wert beibehalten
+            erstellungszeitpunkt = existingProdukt?.erstellungszeitpunkt ?: produkt.erstellungszeitpunkt ?: Date(),
             zuletztGeaendert = Date(),
-            istLokalGeaendert = true, // Markieren fuer spaeteren Sync
-            istLoeschungVorgemerkt = false // Beim Speichern/Aktualisieren ist dies immer false
+            istLokalGeaendert = true,
+            istLoeschungVorgemerkt = false
         )
-        produktDao.produktEinfuegen(produktToSave) // Nutzt OnConflictStrategy.REPLACE
-        Timber.d("$TAG: Produkt ${produktToSave.name} (ID: ${produktToSave.produktId}) lokal gespeichert/aktualisiert. istLokalGeaendert: ${produktToSave.istLokalGeaendert}, Erstellungszeitpunkt: ${produktToSave.erstellungszeitpunkt}, IstOeffentlich: ${produktToSave.istOeffentlich}")
+        produktDao.produktEinfuegen(produktToSave)
+        Timber.d("$TAG: Produkt ${produktToSave.name} (ID: ${produktToSave.produktId}) lokal gespeichert/aktualisiert. istLokalGeaendert: ${produktToSave.istLokalGeaendert}, Erstellungszeitpunkt: ${produktToSave.erstellungszeitpunkt}")
 
-        // ZUSAETZLICHER LOG: Verifikation nach dem Speichern
         val retrievedProdukt = produktDao.getProduktById(produktToSave.produktId).firstOrNull()
         if (retrievedProdukt != null) {
-            Timber.d("$TAG: VERIFIZIERUNG: Produkt nach Speichern erfolgreich aus DB abgerufen. ProduktID: '${retrievedProdukt.produktId}', Erstellungszeitpunkt: ${retrievedProdukt.erstellungszeitpunkt}, ZuletztGeaendert: ${retrievedProdukt.zuletztGeaendert}, istLokalGeaendert: ${retrievedProdukt.istLokalGeaendert}, IstOeffentlich: ${retrievedProdukt.istOeffentlich}")
+            Timber.d("$TAG: VERIFIZIERUNG: Produkt nach Speichern erfolgreich aus DB abgerufen. ProduktID: '${retrievedProdukt.produktId}', Erstellungszeitpunkt: ${retrievedProdukt.erstellungszeitpunkt}, ZuletztGeaendert: ${retrievedProdukt.zuletztGeaendert}, istLokalGeaendert: ${retrievedProdukt.istLokalGeaendert}")
         } else {
             Timber.e("$TAG: VERIFIZIERUNG FEHLGESCHLAGEN: Produkt konnte nach Speichern NICHT aus DB abgerufen werden! ProduktID: '${produktToSave.produktId}'")
         }
     }
 
-    // produktAktualisieren ist nun ueberfluessig, da produktSpeichern die Upsert-Logik enthaelt.
-    // Falls diese Funktion noch von anderen Stellen aufgerufen wird,
-    // muessen diese auf produktSpeichern umgestellt werden.
     override suspend fun produktAktualisieren(produkt: ProduktEntitaet) {
-        Timber.d("$TAG: produktAktualisieren wird aufgerufen, leitet weiter an produktSpeichern. ProduktID: ${produkt.produktId}")
-        produktSpeichern(produkt)
-    }
-
-    override suspend fun markProduktForDeletion(produkt: ProduktEntitaet) {
-        Timber.d("$TAG: Markiere Produkt zur Loeschung: ${produkt.name} (ID: ${produkt.produktId})")
-        val produktLoeschenVorgemerkt = produkt.copy(
-            istLoeschungVorgemerkt = true,
+        Timber.d("$TAG: Versuche Produkt lokal zu aktualisieren: ${produkt.name} (ID: ${produkt.produktId})")
+        val produktToUpdate = produkt.copy(
             zuletztGeaendert = Date(),
-            istLokalGeaendert = true // Auch eine Loeschung ist eine lokale Aenderung, die gesynct werden muss
+            istLokalGeaendert = true,
+            istLoeschungVorgemerkt = false
         )
-        produktDao.produktAktualisieren(produktLoeschenVorgemerkt)
-        Timber.d("$TAG: Produkt ${produktLoeschenVorgemerkt.name} (ID: ${produktLoeschenVorgemerkt.produktId}) lokal zur Loeschung vorgemerkt. istLoeschungVorgemerkt: ${produktLoeschenVorgemerkt.istLoeschungVorgemerkt}")
-    }
-
-    override suspend fun loescheProdukt(produktId: String) {
-        Timber.d("$TAG: Produkt endgueltig loeschen (lokal): $produktId")
-        try {
-            // Hinweis: Das endgueltige Loeschen aus Firestore sollte primaer durch den Sync-Prozess erfolgen,
-            // nachdem das Produkt zur Loeschung vorgemerkt und hochgeladen wurde.
-            // Direkte Loeschung hier nur, wenn es kein Problem darstellt.
-            // In dieser Implementierung wird der Sync-Manager dies handhaben.
-            produktDao.deleteProduktById(produktId)
-            Timber.d("$TAG: Produkt $produktId erfolgreich lokal geloescht.")
-        } catch (e: Exception) {
-            Timber.e(e, "$TAG: Fehler beim endgueltigen Loeschen von Produkt $produktId.")
-        }
+        produktDao.produktAktualisieren(produktToUpdate)
+        Timber.d("$TAG: Produkt ${produktToUpdate.name} (ID: ${produktToUpdate.produktId}) lokal aktualisiert. istLokalGeaendert: ${produktToUpdate.istLokalGeaendert}")
     }
 
     override fun getProduktById(produktId: String): Flow<ProduktEntitaet?> {
@@ -120,13 +99,156 @@ class ProduktRepositoryImpl @Inject constructor(
     }
 
     override fun getAllProdukte(): Flow<List<ProduktEntitaet>> {
-        Timber.d("$TAG: Abrufen aller aktiven Produkte.")
+        Timber.d("$TAG: Abrufen aller aktiven Produkte (nicht zur Loeschung vorgemerkt).")
         return produktDao.getAllProdukte()
     }
 
     override fun getProdukteByKategorie(kategorieId: String): Flow<List<ProduktEntitaet>> {
-        Timber.d("$TAG: Abrufen aller Produkte fuer Kategorie-ID: $kategorieId")
+        Timber.d("$TAG: Abrufen Produkte fuer Kategorie ID: $kategorieId")
         return produktDao.getProdukteByKategorie(kategorieId)
+    }
+
+    /**
+     * NEU: Synchrone Methode zum Abrufen aller Produkte fuer eine spezifische Kategorie.
+     * Wird fuer kaskadierende Relevanzpruefungen benoetigt.
+     *
+     * @param kategorieId Die ID der Kategorie.
+     * @return Eine Liste von Produkt-Entitaeten.
+     */
+    override suspend fun getProdukteByKategorieSynchronous(kategorieId: String): List<ProduktEntitaet> {
+        Timber.d("$TAG: getProdukteByKategorieSynchronous: Abrufen synchroner Produkte fuer Kategorie ID: $kategorieId")
+        return produktDao.getProdukteByKategorieSynchronous(kategorieId)
+    }
+
+    /**
+     * Bestimmt, ob ein Produkt mit einer der relevanten Gruppen des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Produkt -> Artikel -> Einkaufsliste -> Gruppe.
+     *
+     * @param produktId Die ID des zu pruefenden Produkts.
+     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
+     * @return True, wenn das Produkt mit einer relevanter Gruppe verknuepft ist, sonst False.
+     */
+    override suspend fun isProduktLinkedToRelevantGroup(produktId: String, meineGruppenIds: List<String>): Boolean {
+        val artikelRepo = artikelRepositoryProvider.get()
+        val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
+
+        val artikelDieProduktNutzen = artikelRepo.getArtikelByProduktIdSynchronous(produktId)
+        if (artikelDieProduktNutzen.isEmpty()) return false
+
+        for (artikel in artikelDieProduktNutzen) {
+            artikel.einkaufslisteId?.let { einkaufslisteId ->
+                val einkaufsliste = einkaufslisteRepo.getEinkaufslisteById(einkaufslisteId).firstOrNull()
+                einkaufsliste?.gruppeId?.let { gruppeId ->
+                    if (meineGruppenIds.contains(gruppeId)) {
+                        Timber.d("$TAG: Produkt '$produktId' ist mit relevanter Gruppe '$gruppeId' ueber Einkaufsliste '$einkaufslisteId' verknuepft.")
+                        return true // Produkt ist mit relevanter Gruppe verknuepft
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    /**
+     * NEU: Bestimmt, ob ein Produkt indirekt ueber eine Kategorie mit einer der relevanten Gruppen des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Kategorie -> Produkt -> Artikel -> Einkaufsliste -> Gruppe.
+     *
+     * @param kategorieId Die ID der zu pruefenden Kategorie.
+     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
+     * @return True, wenn die Kategorie ueber ein Produkt mit einer relevanter Gruppe verknuepft ist, sonst False.
+     */
+    override suspend fun isProduktLinkedToRelevantGroupViaKategorie(kategorieId: String, meineGruppenIds: List<String>): Boolean {
+        val produkteDerKategorie = produktDao.getProdukteByKategorieSynchronous(kategorieId)
+        val artikelRepo = artikelRepositoryProvider.get()
+        val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
+
+        for (produkt in produkteDerKategorie) {
+            val artikelDieProduktNutzen = artikelRepo.getArtikelByProduktIdSynchronous(produkt.produktId)
+            for (artikel in artikelDieProduktNutzen) {
+                artikel.einkaufslisteId?.let { einkaufslisteId ->
+                    if (einkaufslisteRepo.isEinkaufslisteLinkedToRelevantGroup(einkaufslisteId, meineGruppenIds)) {
+                        Timber.d("$TAG: Produkt (via Kategorie '$kategorieId') ist mit relevanter Gruppe verknuepft.")
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+
+    /**
+     * NEU: Prueft, ob ein Produkt in einer privaten (nicht-Gruppen-) Einkaufsliste des aktuellen Benutzers verwendet wird.
+     * Ein Produkt ist privat, wenn es in einem Artikel enthalten ist, der wiederum in einer Einkaufsliste mit 'gruppeId = null' enthalten ist UND
+     * die 'erstellerId' dieser Einkaufsliste der 'aktuellerBenutzerId' entspricht.
+     *
+     * @param produktId Die ID des zu pruefenden Produkts.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn das Produkt in einer privaten Einkaufsliste des Benutzers ist, sonst False.
+     */
+    override suspend fun isProduktPrivateAndOwnedBy(produktId: String, aktuellerBenutzerId: String): Boolean {
+        val artikelRepo = artikelRepositoryProvider.get()
+        val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
+
+        val artikelDieProduktNutzen = artikelRepo.getArtikelByProduktIdSynchronous(produktId)
+
+        for (artikel in artikelDieProduktNutzen) {
+            artikel.einkaufslisteId?.let { einkaufslisteId ->
+                if (einkaufslisteRepo.isEinkaufslistePrivateAndOwnedBy(einkaufslisteId, aktuellerBenutzerId)) {
+                    Timber.d("$TAG: Produkt '$produktId' ist privat und gehoert Benutzer '$aktuellerBenutzerId' ueber Einkaufsliste '$einkaufslisteId'.")
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /**
+     * Migriert alle anonymen Produkte (erstellerId = null) zum angegebenen Benutzer.
+     * Die Primärschlüssel der Produkte bleiben dabei unverändert.
+     * @param neuerBenutzerId Die ID des Benutzers, dem die anonymen Produkte zugeordnet werden sollen.
+     */
+    override suspend fun migriereAnonymeProdukte(neuerBenutzerId: String) {
+        Timber.d("$TAG: Starte Migration anonymer Produkte zu Benutzer-ID: $neuerBenutzerId")
+        try {
+            val anonymeProdukte = produktDao.getAnonymeProdukte()
+            Timber.d("$TAG: ${anonymeProdukte.size} anonyme Produkte zur Migration gefunden.")
+
+            anonymeProdukte.forEach { produkt ->
+                val aktualisiertesProdukt = produkt.copy(
+                    erstellerId = neuerBenutzerId, // erstellerId setzen
+                    zuletztGeaendert = Date(), // Zeitstempel aktualisieren
+                    istLokalGeaendert = true // Fuer naechsten Sync markieren
+                )
+                produktDao.produktEinfuegen(aktualisiertesProdukt) // Verwendet REPLACE, um den bestehenden Datensatz zu aktualisieren
+                Timber.d("$TAG: Produkt '${produkt.name}' (ID: ${produkt.produktId}) von erstellerId=NULL zu $neuerBenutzerId migriert.")
+            }
+            Timber.d("$TAG: Migration anonymer Produkte abgeschlossen.")
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: FEHLER bei der Migration anonymer Produkte: ${e.message}")
+        }
+    }
+
+
+    override suspend fun markProduktForDeletion(produkt: ProduktEntitaet) {
+        Timber.d("$TAG: Markiere Produkt zur Loeschung: ${produkt.name} (ID: ${produkt.produktId})")
+        val produktLoeschenVorgemerkt = produkt.copy(
+            istLoeschungVorgemerkt = true,
+            zuletztGeaendert = Date(),
+            istLokalGeaendert = true
+        )
+        produktDao.produktAktualisieren(produktLoeschenVorgemerkt)
+        Timber.d("$TAG: Produkt ${produktLoeschenVorgemerkt.name} (ID: ${produktLoeschenVorgemerkt.produktId}) lokal zur Loeschung vorgemerkt. istLoeschungVorgemerkt: ${produktLoeschenVorgemerkt.istLoeschungVorgemerkt}, istLokalGeaendert: ${produktLoeschenVorgemerkt.istLokalGeaendert}")
+    }
+
+    override suspend fun loescheProdukt(produktId: String) {
+        Timber.d("$TAG: Produkt endgueltig loeschen (lokal): $produktId")
+        try {
+            produktDao.deleteProduktById(produktId)
+            Timber.d("$TAG: Produkt $produktId erfolgreich lokal endgueltig geloescht.")
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: Fehler beim endgueltigen Loeschen von Produkt $produktId lokal. ${e.message}")
+        }
     }
 
     // --- Synchronisations-Operationen (Room <-> Firestore) ---
@@ -134,190 +256,229 @@ class ProduktRepositoryImpl @Inject constructor(
     override suspend fun syncProdukteDaten() {
         Timber.d("$TAG: Starte manuelle Synchronisation der Produktdaten.")
 
-        if (!isOnline()) { // Ueberpruefung der Internetverbindung hinzugefuegt
+        if (!isOnline()) {
             Timber.d("$TAG: Keine Internetverbindung fuer Synchronisation verfuegbar.")
             return
         }
 
-        // 1. Lokale Loeschungen zu Firestore pushen (DAO filtert bereits nach istOeffentlich = 1)
+        val aktuellerBenutzer = benutzerRepositoryProvider.get().getAktuellerBenutzer().firstOrNull()
+        val aktuellerBenutzerId = aktuellerBenutzer?.benutzerId ?: run {
+            Timber.w("$TAG: Kein angemeldeter Benutzer fuer Sync gefunden. Synchronisation abgebrochen.")
+            return
+        }
+
+        val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
+            .firstOrNull()
+            ?.map { it.gruppeId }
+            ?: emptyList()
+
+        Timber.d("$TAG: Sync Push: Starte Push-Phase fuer Produkte.")
+
+        val isProduktRelevantForSync: suspend (ProduktEntitaet) -> Boolean = { produkt ->
+            this.isProduktLinkedToRelevantGroup(produkt.produktId, meineGruppenIds) ||
+                    this.isProduktPrivateAndOwnedBy(produkt.produktId, aktuellerBenutzerId) // NEU: Auch private, eigene Produkte sind relevant
+        }
+
+        // 1a. Lokale Loeschungen zu Firestore pushen
         val produkteFuerLoeschung = produktDao.getProdukteFuerLoeschung()
+        Timber.d("$TAG: Sync Push: ${produkteFuerLoeschung.size} Produkte zur Loeschung vorgemerkt lokal gefunden.")
         for (produkt in produkteFuerLoeschung) {
-            try {
-                Timber.d("$TAG: Sync: Push Loeschung fuer Produkt: ${produkt.name} (ID: ${produkt.produktId})")
-                firestoreCollection.document(produkt.produktId).delete().await()
-                produktDao.deleteProduktById(produkt.produktId)
-                Timber.d("$TAG: Sync: Produkt ${produkt.name} (ID: ${produkt.produktId}) erfolgreich aus Firestore und lokal geloescht.")
-            } catch (e: Exception) {
-                Timber.e(e, "$TAG: Sync: Fehler beim Loeschen von Produkt ${produkt.name} (ID: ${produkt.produktId}) aus Firestore.")
-                // Fehlerbehandlung: Produkt bleibt zur Loeschung vorgemerkt, wird spaeter erneut versucht
-            }
-        }
+            val firestoreDocId = produkt.produktId
+            val istRelevantFuerSync = isProduktRelevantForSync(produkt)
 
-        // 2. Lokale Hinzufuegungen/Aenderungen zu Firestore pushen (DAO filtert bereits nach istOeffentlich = 1)
-        val unsynchronisierteProdukte = produktDao.getUnsynchronisierteProdukte()
-        for (produkt in unsynchronisierteProdukte) {
-            try {
-                if (!produkt.istLoeschungVorgemerkt) { // Nur speichern/aktualisieren, wenn nicht fuer Loeschung vorgemerkt
-                    // PRUEFUNG: Existiert die Kategorie fuer dieses Produkt lokal?
-                    if (produkt.kategorieId != null) { // Pruefe nur, wenn kategorieId nicht null ist
-                        val existingKategorie = kategorieDao.getKategorieById(produkt.kategorieId).firstOrNull()
-                        if (existingKategorie == null) {
-                            Timber.e("$TAG: Sync: Produkt ${produkt.name} (ID: ${produkt.produktId}) kann NICHT zu Firestore hochgeladen werden. Referenzierte Kategorie-ID '${produkt.kategorieId}' existiert lokal NICHT.")
-                            continue // Dieses Produkt ueberspringen und naechstes bearbeiten
-                        }
-                    }
-
-                    // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false FUER FIRESTORE, da der Datensatz jetzt synchronisiert wird
-                    // istOeffentlich bleibt so, wie es ist (sollte 1 sein, da DAO bereits gefiltert hat)
-                    val produktFuerFirestore = produkt.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
-                    Timber.d("$TAG: Sync: Push Upload/Update fuer Produkt: ${produkt.name} (ID: ${produkt.produktId}), IstOeffentlich: ${produkt.istOeffentlich}")
-                    firestoreCollection.document(produkt.produktId).set(produktFuerFirestore).await()
-                    // Nach erfolgreichem Upload lokale Flags zuruecksetzen
-                    produktDao.produktEinfuegen(produkt.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)) // Verwende einfuegen fuer Upsert
-                    Timber.d("$TAG: Sync: Produkt ${produkt.name} (ID: ${produkt.produktId}) erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
+            if (istRelevantFuerSync) {
+                try {
+                    Timber.d("$TAG: Sync Push: Versuch Loeschung des Produkts von Firestore: ${produkt.name} (ID: ${firestoreDocId}).")
+                    firestoreCollection.document(firestoreDocId).delete().await()
+                    Timber.d("$TAG: Sync Push: Produkt von Firestore geloescht.")
+                } catch (e: Exception) {
+                    Timber.e(e, "$TAG: Sync Push: FEHLER beim Loeschen von Produkt ${firestoreDocId} aus Firestore: ${e.message}. Faehre mit lokaler Loeschung fort.")
+                } finally {
+                    produktDao.deleteProduktById(produkt.produktId)
+                    Timber.d("$TAG: Sync Push: Lokales Produkt (ID: '${produkt.produktId}') nach Firestore-Loeschung (oder Versuch) endgueltig entfernt.")
                 }
-            } catch (e: Exception) {
-                Timber.e(e, "$TAG: Sync: Fehler beim Hochladen von Produkt ${produkt.name} (ID: ${produkt.produktId}) zu Firestore: ${e.message}")
-                // Fehlerbehandlung: Produkt bleibt als lokal geaendert markiert, wird spaeter erneut versucht
+            } else {
+                Timber.d("$TAG: Sync Push: Produkt ${produkt.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Lokales Flag 'istLokalGeaendert' zuruecksetzen.")
+                produktDao.produktAktualisieren(produkt.copy(istLokalGeaendert = false))
             }
         }
 
-        // 3. Firestore-Daten herunterladen und lokale Datenbank aktualisieren (Last-Write-Wins)
-        Timber.d("$TAG: Sync: Starte Pull-Phase der Synchronisation fuer Produktdaten.")
-        performPullSync() // Ausgelagert in separate Funktion
-        Timber.d("$TAG: Sync: Synchronisation der Produktdaten abgeschlossen.")
+        // 1b. Lokale Hinzufuegungen/Aenderungen zu Firestore pushen
+        val unsynchronisierteProdukte = produktDao.getUnsynchronisierteProdukte()
+        Timber.d("$TAG: Sync Push: ${unsynchronisierteProdukte.size} unsynchronisierte Produkte lokal gefunden.")
+        for (produkt in unsynchronisierteProdukte) {
+            val firestoreDocId = produkt.produktId
+            val istRelevantFuerSync = isProduktRelevantForSync(produkt)
+
+            if (!produkt.istLoeschungVorgemerkt) { // Nur hochladen, wenn nicht zur Loeschung vorgemerkt
+                if (istRelevantFuerSync) {
+                    val produktFuerFirestore = produkt.copy(
+                        istLokalGeaendert = false,
+                        istLoeschungVorgemerkt = false
+                    )
+                    try {
+                        Timber.d("$TAG: Sync Push: Lade Produkt zu Firestore hoch/aktualisiere: ${produkt.name} (ID: ${firestoreDocId}).")
+                        firestoreCollection.document(firestoreDocId).set(produktFuerFirestore).await()
+                        produktDao.produktAktualisieren(produkt.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                        Timber.d("$TAG: Sync Push: Produkt erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
+                    } catch (e: Exception) {
+                        Timber.e(e, "$TAG: Sync Push: FEHLER beim Hochladen von Produkt ${produkt.name} (ID: ${firestoreDocId}) zu Firestore: ${e.message}.")
+                    }
+                } else {
+                    Timber.d("$TAG: Sync Push: Produkt ${produkt.name} (ID: ${firestoreDocId}) ist lokal geaendert, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Kein Upload zu Firestore. Setze istLokalGeaendert zurueck.")
+                    produktDao.produktAktualisieren(produkt.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                }
+            } else {
+                Timber.d("$TAG: Sync Push: Produkt ${produkt.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt. Kein Upload zu Firestore, wird separat gehandhabt.")
+            }
+        }
+
+        Timber.d("$TAG: Sync Pull: Starte Pull-Phase der Synchronisation fuer Produktdaten.")
+        performPullSync()
+        Timber.d("$TAG: Sync Pull: Synchronisation der Produktdaten abgeschlossen.")
     }
 
-    // Ausgelagerte Funktion fuer den Pull-Sync-Teil mit detaillierterem Logging (Goldstandard-Logik)
+    /**
+     * Fuehrt den Pull-Synchronisationsprozess fuer Produkte aus.
+     * Zieht Produkte von Firestore herunter, die mit Artikeln verknuepft sind,
+     * welche wiederum fuer den aktuellen Benutzer aufgrund seiner Gruppenzugehoerigkeit oder privater Nutzung relevant sind.
+     * Die erstellerId des Produkts ist fuer die Sync-Entscheidung irrelevant.
+     */
     private suspend fun performPullSync() {
         Timber.d("$TAG: performPullSync aufgerufen.")
         try {
-            val firestoreSnapshot = firestoreCollection.get().await()
-            val firestoreProduktList = firestoreSnapshot.toObjects(ProduktEntitaet::class.java)
-            Timber.d("$TAG: Sync Pull: ${firestoreProduktList.size} Produkte von Firestore abgerufen.")
-            // ZUSAETZLICHER LOG: Erstellungszeitpunkt direkt nach Firestore-Deserialisierung pruefen
-            firestoreProduktList.forEach { fp ->
-                Timber.d("$TAG: Sync Pull (Firestore-Deserialisierung): ProduktID: '${fp.produktId}', Erstellungszeitpunkt: ${fp.erstellungszeitpunkt}, ZuletztGeaendert: ${fp.zuletztGeaendert}, KategorieID: ${fp.kategorieId}, IstOeffentlich: ${fp.istOeffentlich}")
+            val aktuellerBenutzer = benutzerRepositoryProvider.get().getAktuellerBenutzer().firstOrNull()
+            val aktuellerBenutzerId = aktuellerBenutzer?.benutzerId ?: run {
+                Timber.w("$TAG: performPullSync: Aktueller Benutzer nicht gefunden. Produkt-Pull wird uebersprungen.")
+                return
             }
+
+            val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
+                .firstOrNull()
+                ?.map { it.gruppeId }
+                ?: emptyList()
+
+            // Benötigte Repository-Instanzen
+            val artikelRepo = artikelRepositoryProvider.get()
+            val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
+
+            // Schritt 1: Sammle alle relevanten Artikel-IDs basierend auf Gruppenverknuepfung ODER privater Nutzung
+            val relevantEinkaufslistenIds = mutableSetOf<String>()
+            val relevantProduktIds = mutableSetOf<String>()
+
+            // 1.1 Finde alle Einkaufslisten, die zu meinen Gruppen gehoeren
+            for (gruppeId in meineGruppenIds) {
+                val einkaufslistenInGruppe = einkaufslisteRepo.getEinkaufslistenByGruppeIdSynchronous(gruppeId)
+                relevantEinkaufslistenIds.addAll(einkaufslistenInGruppe.map { it.einkaufslisteId })
+            }
+
+            // NEU: Fuege IDs von privaten Einkaufslisten des aktuellen Benutzers hinzu
+            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslisten().firstOrNull() ?: emptyList()
+            privateEinkaufslisten.filter { it.erstellerId == aktuellerBenutzerId && it.gruppeId == null }
+                .map { it.einkaufslisteId }
+                .let { relevantEinkaufslistenIds.addAll(it) }
+
+            // 1.2 Finde alle Artikel, die zu diesen relevanten Einkaufslisten gehoeren
+            for (einkaufslisteId in relevantEinkaufslistenIds) {
+                val artikelInEinkaufsliste = artikelRepo.getArtikelByEinkaufslisteIdSynchronous(einkaufslisteId)
+                artikelInEinkaufsliste.forEach { artikel ->
+                    artikel.produktId?.let { relevantProduktIds.add(it) } // Collect Produkt-IDs here
+                }
+            }
+
+            Timber.d("$TAG: Sync Pull: Relevante Produkt-IDs fuer Produkt-Pull (inkl. privater): $relevantProduktIds")
+
+            // Schritt 2: Lade Produkte von Firestore herunter, die diese relevanten Artikel referenzieren
+            val firestoreProduktList = mutableListOf<ProduktEntitaet>()
+
+            // A. Lade Produkte, die mit relevanten Artikeln verknuepft sind
+            val chunkedRelevantProduktIds = relevantProduktIds.chunked(10)
+            for (chunk in chunkedRelevantProduktIds) {
+                if (chunk.isNotEmpty()) {
+                    val chunkSnapshot: QuerySnapshot = firestoreCollection
+                        .whereIn("produktId", chunk.toList())
+                        .get().await()
+                    firestoreProduktList.addAll(chunkSnapshot.toObjects(ProduktEntitaet::class.java))
+                }
+            }
+
+            val uniqueFirestoreProdukte = firestoreProduktList.distinctBy { it.produktId }
+            Timber.d("$TAG: Sync Pull: ${uniqueFirestoreProdukte.size} Produkte von Firestore abgerufen (nach umfassender Relevanzpruefung).")
 
             val allLocalProdukte = produktDao.getAllProdukteIncludingMarkedForDeletion()
             val localProduktMap = allLocalProdukte.associateBy { it.produktId }
             Timber.d("$TAG: Sync Pull: ${allLocalProdukte.size} Produkte lokal gefunden (inkl. geloeschter/geaenderter).")
 
-            for (firestoreProdukt in firestoreProduktList) {
+            for (firestoreProdukt in uniqueFirestoreProdukte) {
                 val lokalesProdukt = localProduktMap[firestoreProdukt.produktId]
-                Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Produkt: ${firestoreProdukt.name} (ID: ${firestoreProdukt.produktId}), KategorieID: ${firestoreProdukt.kategorieId}, IstOeffentlich: ${firestoreProdukt.istOeffentlich}")
+                Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Produkt: ${firestoreProdukt.name} (ID: ${firestoreProdukt.produktId}), Ersteller: ${firestoreProdukt.erstellerId}")
 
-                // PRUEFUNG: Existiert die Kategorie des Produkts lokal?
-                if (firestoreProdukt.kategorieId != null) {
-                    val existingKategorie = kategorieDao.getKategorieById(firestoreProdukt.kategorieId).firstOrNull()
-                    if (existingKategorie == null) {
-                        Timber.e("$TAG: Sync Pull: Produkt ${firestoreProdukt.name} (ID: ${firestoreProdukt.produktId}) kann NICHT von Firestore in Room geladen werden. Referenzierte Kategorie-ID '${firestoreProdukt.kategorieId}' existiert lokal NICHT.")
-                        continue // Dieses Produkt ueberspringen und naechstes bearbeiten
-                    }
-                }
+                val isProduktRelevantForPull = isProduktLinkedToRelevantGroup(firestoreProdukt.produktId, meineGruppenIds) ||
+                        isProduktPrivateAndOwnedBy(firestoreProdukt.produktId, aktuellerBenutzerId)
 
                 if (lokalesProdukt == null) {
-                    // Produkt existiert nur in Firestore, lokal einfuegen
-                    // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false, da es von Firestore kommt und synchronisiert ist
-                    // NEU: istOeffentlich wird auf TRUE gesetzt, da es von Firestore kommt
-                    val newProduktInRoom = firestoreProdukt.copy(
-                        istLokalGeaendert = false,
-                        istLoeschungVorgemerkt = false,
-                        istOeffentlich = true // Von Firestore kommt nur oeffentliches Material
-                    )
-                    produktDao.produktEinfuegen(newProduktInRoom)
-                    Timber.d("$TAG: Sync Pull: NEUES Produkt ${newProduktInRoom.name} (ID: ${newProduktInRoom.produktId}) von Firestore in Room HINZUGEFÜGT. Erstellungszeitpunkt in Room: ${newProduktInRoom.erstellungszeitpunkt}, IstOeffentlich: ${newProduktInRoom.istOeffentlich}.")
-
-                    // *** NEUER VERIFIZIERUNGS-LOG fuer HINZUGEFUEGTE Produkte ***
-                    val verifiedNewProdukt = produktDao.getProduktById(newProduktInRoom.produktId).firstOrNull()
-                    if (verifiedNewProdukt != null) {
-                        Timber.d("$TAG: VERIFIZIERUNG NACH PULL-ADD: ProduktID: '${verifiedNewProdukt.produktId}', Erstellungszeitpunkt: ${verifiedNewProdukt.erstellungszeitpunkt}, ZuletztGeaendert: ${verifiedNewProdukt.zuletztGeaendert}, istLokalGeaendert: ${verifiedNewProdukt.istLokalGeaendert}, KategorieID: ${verifiedNewProdukt.kategorieId}, IstOeffentlich: ${verifiedNewProdukt.istOeffentlich}")
+                    if (isProduktRelevantForPull) { // Nur hinzufügen, wenn relevant
+                        val newProduktInRoom = firestoreProdukt.copy(
+                            istLokalGeaendert = false,
+                            istLoeschungVorgemerkt = false
+                        )
+                        produktDao.produktEinfuegen(newProduktInRoom)
+                        Timber.d("$TAG: Sync Pull: NEUES Produkt ${newProduktInRoom.name} (ID: ${newProduktInRoom.produktId}) von Firestore in Room HINZUGEFUEGT (relevant).")
                     } else {
-                        Timber.e("$TAG: VERIFIZIERUNG NACH PULL-ADD FEHLGESCHLAGEN: Produkt konnte nach Pull-Add NICHT aus DB abgerufen werden! ProduktID: '${newProduktInRoom.produktId}'")
+                        Timber.d("$TAG: Sync Pull: Produkt ${firestoreProdukt.name} (ID: ${firestoreProdukt.produktId}) von Firestore nicht relevant fuer Pull. Wird ignoriert.")
                     }
-
                 } else {
-                    Timber.d("$TAG: Sync Pull: Lokales Produkt ${lokalesProdukt.name} (ID: ${lokalesProdukt.produktId}) gefunden. Lokal geaendert: ${lokalesProdukt.istLokalGeaendert}, Zur Loeschung vorgemerkt: ${lokalesProdukt.istLoeschungVorgemerkt}, KategorieID: ${lokalesProdukt.kategorieId}, IstOeffentlich: ${lokalesProdukt.istOeffentlich}.")
+                    Timber.d("$TAG: Sync Pull: Lokales Produkt ${lokalesProdukt.name} (ID: ${lokalesProdukt.produktId}) gefunden. Lokal geaendert: ${lokalesProdukt.istLokalGeaendert}, Zur Loeschung vorgemerkt: ${lokalesProdukt.istLoeschungVorgemerkt}.")
 
-                    // Prioritäten der Konfliktlösung (Konsistent mit allen Goldstandard Repositories):
-                    // 1. Wenn lokal zur Loeschung vorgemerkt, lokale Version beibehalten (wird im Push geloescht)
                     if (lokalesProdukt.istLoeschungVorgemerkt) {
-                        Timber.d("$TAG: Sync Pull: Lokales Produkt ${lokalesProdukt.name} ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert.")
-                        continue // Naechstes Firestore-Produkt verarbeiten
+                        Timber.d("$TAG: Sync Pull: Lokales Produkt ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert (wird im Push-Sync geloescht).")
+                        continue
                     }
-                    // 2. Wenn lokal geaendert, lokale Version beibehalten (wird im Push hochgeladen)
                     if (lokalesProdukt.istLokalGeaendert) {
-                        Timber.d("$TAG: Sync Pull: Lokales Produkt ${lokalesProdukt.name} ist lokal geaendert. Pull-Version von Firestore wird ignoriert.")
-                        continue // Naechstes Firestore-Produkt verarbeiten
+                        Timber.d("$TAG: Sync Pull: Lokales Produkt ist lokal geaendert. Pull-Version von Firestore wird ignoriert (wird im Push-Sync hochgeladen).")
+                        continue
                     }
 
-                    // 3. Wenn Firestore-Version zur Loeschung vorgemerkt ist, lokal loeschen (da lokale Version nicht geaendert ist und nicht zur Loeschung vorgemerkt)
-                    if (firestoreProdukt.istLoeschungVorgemerkt) {
-                        produktDao.deleteProduktById(lokalesProdukt.produktId)
-                        Timber.d("$TAG: Sync Pull: Produkt ${lokalesProdukt.name} lokal GELÖSCHT, da in Firestore als gelöscht markiert und lokale Version nicht veraendert.")
-                        continue // Naechstes Firestore-Produkt verarbeiten
-                    }
-
-                    // --- ZUSAETZLICHE PRUEFUNG fuer Erstellungszeitpunkt (GOLDSTANDARD-ANPASSUNG) ---
-                    // Wenn erstellungszeitpunkt lokal null ist, aber von Firestore einen Wert hat, aktualisieren
-                    val shouldUpdateErstellungszeitpunkt =
-                        lokalesProdukt.erstellungszeitpunkt == null && firestoreProdukt.erstellungszeitpunkt != null
-                    if (shouldUpdateErstellungszeitpunkt) {
-                        Timber.d("$TAG: Sync Pull: Erstellungszeitpunkt von NULL auf Firestore-Wert aktualisiert fuer ProduktID: '${lokalesProdukt.produktId}'.")
-                    }
-                    // --- Ende der ZUSAETZLICHEN PRUEFUNG ---
-
-                    // 4. Last-Write-Wins basierend auf Zeitstempel (wenn keine Konflikte nach Prioritaeten 1-3)
                     val firestoreTimestamp = firestoreProdukt.zuletztGeaendert ?: firestoreProdukt.erstellungszeitpunkt
                     val localTimestamp = lokalesProdukt.zuletztGeaendert ?: lokalesProdukt.erstellungszeitpunkt
 
                     val isFirestoreNewer = when {
-                        firestoreTimestamp == null && localTimestamp == null -> false // Beide null, keine klare Entscheidung, lokale Version (die ja nicht geaendert ist) behalten
-                        firestoreTimestamp != null && localTimestamp == null -> true // Firestore hat Timestamp, lokal nicht, Firestore ist neuer
-                        firestoreTimestamp == null && localTimestamp != null -> false // Lokal hat Timestamp, Firestore nicht, lokal ist neuer
-                        firestoreTimestamp != null && localTimestamp != null -> firestoreTimestamp.after(localTimestamp) // Beide haben Timestamps, vergleichen
-                        else -> false // Sollte nicht passieren
+                        firestoreTimestamp == null && localTimestamp == null -> false
+                        firestoreTimestamp != null && localTimestamp == null -> true
+                        localTimestamp != null && firestoreTimestamp == null -> false
+                        else -> firestoreTimestamp!!.after(localTimestamp!!)
                     }
 
-                    if (isFirestoreNewer || shouldUpdateErstellungszeitpunkt) {
-                        // Firestore ist neuer und lokale Version ist weder zur Loeschung vorgemerkt noch lokal geaendert (da durch 'continue' oben abgefangen)
-                        // NEU: istOeffentlich wird auf TRUE gesetzt, da es von Firestore kommt
+                    if (isFirestoreNewer) {
                         val updatedProdukt = firestoreProdukt.copy(
-                            // Erstellungszeitpunkt aus Firestore verwenden, da er der "Quelle der Wahrheit" ist
-                            erstellungszeitpunkt = firestoreProdukt.erstellungszeitpunkt,
-                            istLokalGeaendert = false, // Ist jetzt synchronisiert
-                            istLoeschungVorgemerkt = false,
-                            istOeffentlich = true // Von Firestore kommt nur oeffentliches Material
+                            istLokalGeaendert = false,
+                            istLoeschungVorgemerkt = false
                         )
-                        produktDao.produktEinfuegen(updatedProdukt) // Verwende einfuegen, da @Insert(onConflict = REPLACE) ein Update durchfuehrt
-                        Timber.d("$TAG: Sync Pull: Produkt ${updatedProdukt.name} (ID: ${updatedProdukt.produktId}) von Firestore in Room AKTUALISIERT (Firestore neuer ODER erstellungszeitpunkt aktualisiert). Erstellungszeitpunkt in Room: ${updatedProdukt.erstellungszeitpunkt}, IstOeffentlich: ${updatedProdukt.istOeffentlich}.")
-
-                        // *** NEUER VERIFIZIERUNGS-LOG fuer AKTUALISIERTE Produkte ***
-                        val verifiedUpdatedProdukt = produktDao.getProduktById(updatedProdukt.produktId).firstOrNull()
-                        if (verifiedUpdatedProdukt != null) {
-                            Timber.d("$TAG: VERIFIZIERUNG NACH PULL-UPDATE: ProduktID: '${verifiedUpdatedProdukt.produktId}', Erstellungszeitpunkt: ${verifiedUpdatedProdukt.erstellungszeitpunkt}, ZuletztGeaendert: ${verifiedUpdatedProdukt.zuletztGeaendert}, istLokalGeaendert: ${verifiedUpdatedProdukt.istLokalGeaendert}, KategorieID: ${verifiedUpdatedProdukt.kategorieId}, IstOeffentlich: ${verifiedUpdatedProdukt.istOeffentlich}")
-                        } else {
-                            Timber.e("$TAG: VERIFIZIERUNG NACH PULL-UPDATE FEHLGESCHLAGEN: Produkt konnte nach Pull-UPDATE NICHT aus DB abgerufen werden! ProduktID: '${updatedProdukt.produktId}'")
-                        }
-
+                        produktDao.produktEinfuegen(updatedProdukt)
+                        Timber.d("$TAG: Sync Pull: Produkt ${updatedProdukt.name} (ID: ${updatedProdukt.produktId}) von Firestore in Room AKTUALISIERT (Firestore neuer).")
                     } else {
-                        Timber.d("$TAG: Sync Pull: Lokales Produkt ${lokalesProdukt.name} (ID: ${lokalesProdukt.produktId}) ist aktueller oder gleich, oder Firestore-Version ist nicht neuer. KEINE AKTUALISIERUNG von Firestore.")
+                        Timber.d("$TAG: Sync Pull: Lokales Produkt ${lokalesProdukt.name} (ID: ${lokalesProdukt.produktId}) ist aktueller oder gleich. KEINE AKTUALISIERUNG durch Pull.")
                     }
                 }
             }
 
-            // 5. Lokale Produkte finden, die in Firestore nicht mehr existieren und lokal NICHT zur Loeschung vorgemerkt sind
-            val firestoreProduktIds = firestoreProduktList.map { it.produktId }.toSet()
-
+            val uniqueFirestoreProduktIds = uniqueFirestoreProdukte.map { it.produktId }.toSet()
             for (localProdukt in allLocalProdukte) {
-                // NEU: Pruefung, ob das lokale Produkt oeffentlich ist. Persoenliche Produkte werden NICHT geloescht.
-                if (localProdukt.produktId.isNotEmpty() && !firestoreProduktIds.contains(localProdukt.produktId) &&
-                    !localProdukt.istLoeschungVorgemerkt && !localProdukt.istLokalGeaendert && localProdukt.istOeffentlich) { // <--- WICHTIGE NEUE HINZUFUEGUNG
+                val istRelevantFuerBenutzer = isProduktLinkedToRelevantGroup(localProdukt.produktId, meineGruppenIds) ||
+                        isProduktPrivateAndOwnedBy(localProdukt.produktId, aktuellerBenutzerId) // NEU: Auch private, eigene Produkte sind relevant
+
+                // Lokales Produkt loeschen, wenn es nicht mehr in Firestore vorhanden ist
+                // UND nicht lokal geaendert/vorgemerkt ist
+                // UND nicht relevant fuer diesen Benutzer ist (keine Gruppenverbindung UND nicht privat/eigen)
+                if (!uniqueFirestoreProduktIds.contains(localProdukt.produktId) &&
+                    !localProdukt.istLoeschungVorgemerkt && !localProdukt.istLokalGeaendert &&
+                    !istRelevantFuerBenutzer) {
                     produktDao.deleteProduktById(localProdukt.produktId)
-                    Timber.d("$TAG: Sync Pull: Lokales Produkt ${localProdukt.name} (ID: ${localProdukt.produktId}) GELÖSCHT, da nicht mehr in Firestore vorhanden und lokal NICHT zur Loeschung vorgemerkt UND NICHT lokal geaendert UND istOeffentlich war.")
-                } else if (!localProdukt.istOeffentlich) { // Zusaetzlicher Log fuer persoenliche Produkte
-                    Timber.d("$TAG: Sync Pull: Lokales Produkt ${localProdukt.name} (ID: ${localProdukt.produktId}) ist persoenlich (istOeffentlich=false) und nicht in Firestore. Bleibt lokal erhalten.")
+                    Timber.d("$TAG: Sync Pull: Lokales Produkt ${localProdukt.name} (ID: ${localProdukt.produktId}) GELÖSCHT, da nicht mehr in Firestore vorhanden UND nicht relevant fuer diesen Benutzer UND lokal synchronisiert war.")
+                } else if (istRelevantFuerBenutzer) {
+                    Timber.d("$TAG: Sync Pull: Lokales Produkt ${localProdukt.name} (ID: ${localProdukt.produktId}) BLEIBT LOKAL, da es noch fuer diesen Benutzer relevant ist (mit relevanter Gruppe verbunden ODER privat/eigen).")
+                } else {
+                    Timber.d("$TAG: Sync Pull: Lokales Produkt ${localProdukt.name} (ID: ${localProdukt.produktId}) BLEIBT LOKAL (Grund: ${if(localProdukt.istLokalGeaendert) "lokal geaendert" else if (localProdukt.istLoeschungVorgemerkt) "zur Loeschung vorgemerkt" else "nicht remote gefunden, aber dennoch lokal behalten, da es nicht als nicht-relevant identifiziert wurde."}).")
                 }
             }
             Timber.d("$TAG: Sync Pull: Pull-Synchronisation der Produktdaten abgeschlossen.")

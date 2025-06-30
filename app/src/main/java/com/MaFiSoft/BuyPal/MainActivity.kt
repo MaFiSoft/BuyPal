@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/MainActivity.kt
-// Stand: 2025-06-12_22:05:00, Codezeilen: 160 (Route fuer ProduktGeschaeftVerbindungTestScreen hinzugefuegt)
+// Stand: 2025-06-27_12:55:00, Codezeilen: ~180 (ArtikelViewModel Referenz in einkaufsliste_artikel_detail wiederhergestellt)
 
 package com.MaFiSoft.BuyPal
 
@@ -22,18 +22,19 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.MaFiSoft.BuyPal.navigation.Screen
 import com.MaFiSoft.BuyPal.ui.screens.HomeScreen
 
 import com.MaFiSoft.BuyPal.ui.screens.SplashScreen
-import com.MaFiSoft.BuyPal.presentation.viewmodel.ArtikelViewModel
+import com.MaFiSoft.BuyPal.presentation.viewmodel.ArtikelViewModel // WIEDER HINZUGEFÜGT: Import für ArtikelViewModel
 
 import com.MaFiSoft.BuyPal.sync.SyncManager
 import javax.inject.Inject
 
 import com.MaFiSoft.BuyPal.presentation.viewmodel.KategorieViewModel
 import com.MaFiSoft.BuyPal.ui.screens.KategorieTestUI
-import com.MaFiSoft.BuyPal.ui.screens.ArtikelTestUI
 
 import com.MaFiSoft.BuyPal.presentation.viewmodel.ProduktViewModel
 import com.MaFiSoft.BuyPal.ui.screens.ProduktTestUI
@@ -49,9 +50,13 @@ import com.MaFiSoft.BuyPal.ui.screens.GruppeTestUI
 import com.MaFiSoft.BuyPal.presentation.viewmodel.EinkaufslisteViewModel
 import com.MaFiSoft.BuyPal.ui.screens.EinkaufslisteTestUI
 
-// NEU: Import fuer ProduktGeschaeftVerbindungTestScreen
+// Import fuer ProduktGeschaeftVerbindungTestScreen
 import com.MaFiSoft.BuyPal.ui.screens.ProduktGeschaeftVerbindungTestScreen
-import com.MaFiSoft.BuyPal.presentation.viewmodel.ProduktGeschaeftVerbindungViewModel // Benötigt, um ViewModel zu injizieren
+import com.MaFiSoft.BuyPal.presentation.viewmodel.ProduktGeschaeftVerbindungViewModel
+
+// NEU: Import fuer die zukuenftige EinkaufslisteArtikelDetailScreen
+// import com.MaFiSoft.BuyPal.ui.screens.EinkaufslisteArtikelDetailScreen
+
 
 import androidx.compose.material3.ExperimentalMaterial3Api
 
@@ -73,7 +78,7 @@ class MainActivity : ComponentActivity() {
 
         // Starte den vollen Synchronisationsprozess
         syncManager.startFullSync()
-        Timber.d("MainActivity: Vollständiger Synchronisationsprozess über SyncManager gestartet.")
+        Timber.d("MainActivity: Vollstaendiger Synchronisationsprozess ueber SyncManager gestartet.")
 
 
         setContent {
@@ -89,62 +94,69 @@ class MainActivity : ComponentActivity() {
                         startDestination = Screen.Splash.route
                     ) {
                         composable(Screen.Splash.route) {
-                            // Der SplashScreen, der nach einer kurzen Verzögerung zum Home-Screen navigiert
                             SplashScreen(navController = navController)
                         }
                         composable(Screen.Home.route) {
                             HomeScreen(navController = navController)
                         }
                         composable(Screen.BenutzerVerwaltung.route) {
-                            // KORRIGIERT: Aufruf der externen BenutzerTestUI ohne explizite ViewModel-Übergabe
-                            // Das ViewModel wird von Hilt innerhalb von BenutzerTestUI selbst bereitgestellt.
                             BenutzerTestUI()
                         }
-                        composable(Screen.ArtikelVerwaltung.route) {
-                            // Hilt wird das ViewModel automatisch bereitstellen
-                            val artikelViewModel: ArtikelViewModel = hiltViewModel()
-                            ArtikelTestUI(artikelViewModel = artikelViewModel)
-                        }
                         composable(Screen.KategorieVerwaltung.route) {
-                            // Hilt wird das ViewModel automatisch bereitstellen
                             val kategorieViewModel: KategorieViewModel = hiltViewModel()
                             KategorieTestUI(kategorieViewModel = kategorieViewModel)
                         }
                         composable(Screen.ProduktVerwaltung.route) {
-                            // Hilt wird das ViewModel automatisch bereitstellen
                             val produktViewModel: ProduktViewModel = hiltViewModel()
-                            // KategorieViewModel wird ebenfalls benötigt, um die Dropdown-Liste zu füllen
                             val kategorieViewModel: KategorieViewModel = hiltViewModel()
                             ProduktTestUI(
                                 produktViewModel = produktViewModel,
                                 kategorieViewModel = kategorieViewModel
                             )
                         }
-                        // Composable-Definition für die GeschaeftTestUI
                         composable(Screen.GeschaeftVerwaltung.route) {
                             val geschaeftViewModel: GeschaeftViewModel = hiltViewModel()
                             GeschaeftTestUI(geschaeftViewModel = geschaeftViewModel)
                         }
-                        // NEU: Composable-Definition für die GruppeTestUI
                         composable(Screen.GruppeVerwaltung.route) {
                             val gruppeViewModel: GruppeViewModel = hiltViewModel()
                             GruppeTestUI(gruppeViewModel = gruppeViewModel)
                         }
-                        // HINZUGEFÜGT: Composable-Definition für die EinkaufslisteTestUI
                         composable(Screen.EinkaufslisteVerwaltung.route) {
                             val einkaufslisteViewModel: EinkaufslisteViewModel = hiltViewModel()
-                            EinkaufslisteTestUI(einkaufslisteViewModel = einkaufslisteViewModel)
+                            EinkaufslisteTestUI(
+                                einkaufslisteViewModel = einkaufslisteViewModel,
+                                onNavigateToEinkaufslisteArtikel = { einkaufslisteId ->
+                                    navController.navigate("einkaufsliste_artikel_detail/${einkaufslisteId}")
+                                }
+                            )
                         }
-                        // NEU: Composable-Definition für die ProduktGeschaeftVerbindungTestScreen
                         composable(Screen.ProduktGeschaeftVerbindung.route) {
                             val produktGeschaeftVerbindungViewModel: ProduktGeschaeftVerbindungViewModel = hiltViewModel()
-                            val produktViewModel: ProduktViewModel = hiltViewModel() // ProduktViewModel wird auch im PGVTestScreen benoetigt
+                            val produktViewModel: ProduktViewModel = hiltViewModel()
                             ProduktGeschaeftVerbindungTestScreen(
                                 produktGeschaeftVerbindungViewModel = produktGeschaeftVerbindungViewModel,
                                 produktViewModel = produktViewModel
                             )
                         }
-                        // Zukünftige Routen hier hinzufügen
+                        // NEU: Route fuer die Detailansicht der Einkaufslisten-Artikel
+                        composable(
+                            route = "einkaufsliste_artikel_detail/{einkaufslisteId}",
+                            arguments = listOf(navArgument("einkaufslisteId") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val einkaufslisteId = backStackEntry.arguments?.getString("einkaufslisteId")
+                            if (einkaufslisteId != null) {
+                                // Hilt wird das ViewModel automatisch bereitstellen
+                                val artikelViewModel: ArtikelViewModel = hiltViewModel() // HIER WIEDERHERGESTELLT
+                                // TODO: Hier wird der Aufruf der eigentlichen EinkaufslisteArtikelDetailScreen-Composable-Funktion erfolgen
+                                // Da diese noch nicht existiert, nutzen wir einen Text als Platzhalter.
+                                Text("Artikel fuer Einkaufsliste: $einkaufslisteId")
+                                Timber.d("MainActivity: Navigiere zu EinkaufslisteArtikelDetail fuer ID: $einkaufslisteId")
+                            } else {
+                                Timber.e("MainActivity: Fehler: EinkaufslisteId ist NULL beim Navigieren zu EinkaufslisteArtikelDetail.")
+                                Text("Fehler: Einkaufsliste konnte nicht geladen werden.")
+                            }
+                        }
                     }
                 }
             }
@@ -155,7 +167,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun DefaultPreview() {
         BuyPalTheme {
-            Text("Vorschau der Main-Activity (nicht voll funktionsfähig)")
+            Text("Vorschau der Main-Activity (nicht voll funktionsfaehig)")
         }
     }
 }

@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/ProduktGeschaeftVerbindungDao.kt
-// Stand: 2025-06-16_08:48:00, Codezeilen: 83 (markiereAlleVerbindungenFuerProduktZurLoeschung hinzugefuegt)
+// Stand: 2025-06-26_15:45:00, Codezeilen: ~95 (Hinzugefuegt: getAnonymeProduktGeschaeftVerbindungen)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -32,16 +32,7 @@ interface ProduktGeschaeftVerbindungDao {
     suspend fun verbindungAktualisieren(verbindung: ProduktGeschaeftVerbindungEntitaet)
 
     /**
-     * Loescht eine spezifische Produkt-Geschaeft-Verbindung anhand ihrer IDs endgueltig aus Room.
-     * Diese Methode wird typischerweise NACH erfolgreicher Synchronisation mit Firestore aufgerufen.
-     * @param produktId Die ID des Produkts.
-     * @param geschaeftId Die ID des Geschaefts.
-     */
-    @Query("DELETE FROM produkt_geschaeft_verbindung WHERE produktId = :produktId AND geschaeftId = :geschaeftId")
-    suspend fun verbindungEndgueltigLoeschen(produktId: String, geschaeftId: String)
-
-    /**
-     * Ruft eine spezifische Produkt-Geschaeft-Verbindung anhand ihrer kombinierten IDs ab.
+     * Ruft eine spezifische Produkt-Geschaeft-Verbindung anhand ihrer IDs ab.
      * @param produktId Die ID des Produkts.
      * @param geschaeftId Die ID des Geschaefts.
      * @return Ein Flow, das die gefundene Verbindung oder null emittiert.
@@ -50,77 +41,90 @@ interface ProduktGeschaeftVerbindungDao {
     fun getVerbindungById(produktId: String, geschaeftId: String): Flow<ProduktGeschaeftVerbindungEntitaet?>
 
     /**
-     * Ruft die IDs aller Geschaefte ab, die mit einem bestimmten Oeffentlichen Produkt verbunden sind
-     * und nicht zur Loeschung vorgemerkt sind.
+     * Ruft alle Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Produkt ab.
      * @param produktId Die ID des Produkts.
-     * @return Ein Flow, das eine Liste von Geschaefts-IDs emittiert.
+     * @return Ein Flow, das eine Liste von Verbindungen emittiert.
      */
-    @Query("SELECT geschaeftId FROM produkt_geschaeft_verbindung WHERE produktId = :produktId AND istLoeschungVorgemerkt = 0 AND istOeffentlich = 1")
-    fun getGeschaeftIdsFuerProdukt(produktId: String): Flow<List<String>>
-
-    /**
-     * Ruft die IDs aller Produkte ab, die mit einem bestimmten Oeffentlichen Geschaeft verbunden sind
-     * und nicht zur Loeschung vorgemerkt sind.
-     * @param geschaeftId Die ID des Geschaefts.
-     * @return Ein Flow, das eine Liste von Produkt-IDs emittiert.
-     */
-    @Query("SELECT produktId FROM produkt_geschaeft_verbindung WHERE geschaeftId = :geschaeftId AND istLoeschungVorgemerkt = 0 AND istOeffentlich = 1")
-    fun getProduktIdsFuerGeschaeft(geschaeftId: String): Flow<List<String>>
-
-    /**
-     * Ruft ALLE Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Produkt ab,
-     * unabhaengig von ihren Synchronisations-Flags und dem istOeffentlich-Flag.
-     * Dies wird fuer die Kaskadierung benoetigt.
-     * @param produktId Die ID des Produkts, fuer das die Verbindungen abgerufen werden sollen.
-     * @return Ein Flow, das eine Liste von ProduktGeschaeftVerbindungEntitaet emittiert.
-     */
-    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE produktId = :produktId")
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE produktId = :produktId AND istLoeschungVorgemerkt = 0")
     fun getVerbindungenByProduktId(produktId: String): Flow<List<ProduktGeschaeftVerbindungEntitaet>>
 
     /**
-     * Merkt alle Verbindungen fuer ein bestimmtes Produkt zur Loeschung vor (Soft Delete).
-     * Setzt das 'istLoeschungVorgemerkt'-Flag und markiert die Verbindung fuer die Synchronisation.
-     * Diese Methode wird typischerweise aufgerufen, wenn das uebergeordnete Produkt geloescht wird.
-     * @param produktId Die ID des Produkts, fuer das alle Verbindungen zur Loeschung vorgemerkt werden sollen.
+     * NEU: Synchrone Methode zum Abrufen aller Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Produkt.
+     * @param produktId Die ID des Produkts.
+     * @return Eine Liste von Verbindungen.
      */
-    @Query("UPDATE produkt_geschaeft_verbindung SET istLoeschungVorgemerkt = 1, istLokalGeaendert = 1 WHERE produktId = :produktId")
-    suspend fun markiereAlleVerbindungenFuerProduktZurLoeschung(produktId: String) // Hinzugefuegt!
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE produktId = :produktId AND istLoeschungVorgemerkt = 0")
+    suspend fun getVerbindungenByProduktIdSynchronous(produktId: String): List<ProduktGeschaeftVerbindungEntitaet>
 
     /**
-     * Holt alle Oeffentlichen Produkt-Geschaeft-Verbindungen, die NICHT zur Loeschung vorgemerkt sind.
-     * @return Ein Flow, das eine Liste aller nicht vorgemerkten Verbindungen emittiert.
+     * Ruft alle Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Geschaeft ab.
+     * @param geschaeftId Die ID des Geschaefts.
+     * @return Ein Flow, das eine Liste von Verbindungen emittiert.
      */
-    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLoeschungVorgemerkt = 0 AND istOeffentlich = 1")
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE geschaeftId = :geschaeftId AND istLoeschungVorgemerkt = 0")
+    fun getVerbindungenByGeschaeftId(geschaeftId: String): Flow<List<ProduktGeschaeftVerbindungEntitaet>>
+
+    /**
+     * Synchrone Methode zum Abrufen aller Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Geschaeft.
+     * Wird fuer referentielle Integritaetspruefungen benoetigt.
+     * @param geschaeftId Die ID des Geschaefts.
+     * @return Eine Liste von Verbindungen.
+     */
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE geschaeftId = :geschaeftId AND istLoeschungVorgemerkt = 0")
+    suspend fun getVerbindungenByGeschaeftIdSynchronous(geschaeftId: String): List<ProduktGeschaeftVerbindungEntitaet>
+
+    /**
+     * Holt alle aktiven Produkt-Geschaeft-Verbindungen (nicht zur Loeschung vorgemerkt).
+     * @return Ein Flow, das eine Liste von ProduktGeschaeftVerbindungEntitaet emittiert.
+     */
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLoeschungVorgemerkt = 0")
     fun getAllVerbindungen(): Flow<List<ProduktGeschaeftVerbindungEntitaet>>
 
     /**
-     * Holt ALLE Produkt-Geschaeft-Verbindungen, auch die zur Loeschung vorgemerkten (fuer interne Sync-Logik noetig),
-     * unabhaengig vom istOeffentlich-Flag.
-     * @return Eine Liste aller Verbindungen, einschliesslich der zur Loeschung vorgemerkten.
+     * Holt ALLE Produkt-Geschaeft-Verbindungen, auch die zur Loeschung vorgemerkten (fuer interne Sync-Logik benoetigt).
+     * @return Eine Liste aller ProduktGeschaeftVerbindungEntitaeten.
      */
     @Query("SELECT * FROM produkt_geschaeft_verbindung")
     suspend fun getAllVerbindungenIncludingMarkedForDeletion(): List<ProduktGeschaeftVerbindungEntitaet>
 
     /**
-     * Holt alle Oeffentlichen Produkt-Geschaeft-Verbindungen, die lokal geaendert wurden und noch nicht zur Loeschung vorgemerkt sind.
-     * Diese muessen mit Firestore synchronisiert werden.
+     * Holt alle Produkt-Geschaeft-Verbindungen, die lokal geaendert, aber noch nicht synchronisiert wurden UND NICHT zur Loeschung vorgemerkt sind.
      * @return Eine Liste von unsynchronisierten Verbindungen.
      */
-    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0 AND istOeffentlich = 1")
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")
     suspend fun getUnsynchronisierteVerbindungen(): List<ProduktGeschaeftVerbindungEntitaet>
 
     /**
-     * Holt alle Oeffentlichen Produkt-Geschaeft-Verbindungen, die zur Loeschung vorgemerkt sind.
-     * Diese muessen aus Firestore geloescht werden.
+     * Holt alle Produkt-Geschaeft-Verbindungen, die zur Loeschung vorgemerkt sind.
      * @return Eine Liste von Verbindungen, die zur Loeschung vorgemerkt sind.
      */
-    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLoeschungVorgemerkt = 1 AND istOeffentlich = 1")
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE istLoeschungVorgemerkt = 1")
     suspend fun getVerbindungenFuerLoeschung(): List<ProduktGeschaeftVerbindungEntitaet>
 
     /**
-     * Loescht alle Produkt-Geschaeft-Verbindungen endgueltig aus Room.
-     * Diese Methode wird typischerweise fuer Bereinigung oder Tests verwendet.
+     * NEU: Holt alle Produkt-Geschaeft-Verbindungen, die von einem anonymen Nutzer erstellt wurden (erstellerId = null)
+     * und nicht zur Loeschung vorgemerkt sind.
+     * @return Eine Liste von ProduktGeschaeftVerbindungEntitaeten zur Migration.
      */
-    @Query("DELETE FROM produkt_geschaeft_verbindung")
-    suspend fun deleteAllVerbindungen()
+    @Query("SELECT * FROM produkt_geschaeft_verbindung WHERE erstellerId IS NULL AND istLoeschungVorgemerkt = 0")
+    suspend fun getAnonymeProduktGeschaeftVerbindungen(): List<ProduktGeschaeftVerbindungEntitaet>
+
+
+    /**
+     * Loescht eine Produkt-Geschaeft-Verbindung anhand ihrer eindeutigen IDs aus der Datenbank.
+     * Dies wird typischerweise nach erfolgreicher Cloud-Synchronisation aufgerufen.
+     * @param produktId Die ID des Produkts der zu loeschenden Verbindung.
+     * @param geschaeftId Die ID des Geschaefts der zu loeschenden Verbindung.
+     */
+    @Query("DELETE FROM produkt_geschaeft_verbindung WHERE produktId = :produktId AND geschaeftId = :geschaeftId")
+    suspend fun deleteVerbindungById(produktId: String, geschaeftId: String)
+
+    /**
+     * Ruft eine Liste von Geschaeft-IDs ab, die mit einem bestimmten Produkt verknuepft sind.
+     * Dies ist hilfreich, um die Liste der bereits verknuepften Geschaefte in der UI anzuzeigen.
+     * @param produktId Die ID des Produkts.
+     * @return Ein Flow, das eine Liste von Geschaeft-IDs emittiert.
+     */
+    @Query("SELECT geschaeftId FROM produkt_geschaeft_verbindung WHERE produktId = :produktId AND istLoeschungVorgemerkt = 0")
+    fun getGeschaeftIdsFuerProdukt(produktId: String): Flow<List<String>>
 }

@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/KategorieDao.kt
-// Stand: 2025-06-15_04:35:00, Codezeilen: 54 (istOeffentlich-Filterung hinzugefuegt)
+// Stand: 2025-06-26_15:25:00, Codezeilen: ~60 (Hinzugefuegt: getAnonymeKategorien)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -41,47 +41,52 @@ interface KategorieDao {
     fun getKategorieById(kategorieId: String): Flow<KategorieEntitaet?>
 
     /**
-     * Ruft alle Oeffentlichen Kategorien ab, die NICHT zur Loeschung vorgemerkt sind.
+     * Ruft alle aktiven Kategorien ab, die NICHT zur Loeschung vorgemerkt sind.
+     * Der Filter nach istOeffentlich=1 wurde entfernt, da die Oeffentlichkeit nun von der Verwendung
+     * in Gruppen-Einkaufslisten abhaengt und nicht von der Kategorie selbst.
      * Sortiert die Kategorien alphabetisch nach ihrem Namen.
      * @return Ein Flow, der eine Liste von Kategorie-Entitaeten emittiert.
      */
-    @Query("SELECT * FROM kategorie WHERE istLoeschungVorgemerkt = 0 AND istOeffentlich = 1 ORDER BY name ASC")
+    @Query("SELECT * FROM kategorie WHERE istLoeschungVorgemerkt = 0 ORDER BY name ASC")
     fun getAllKategorien(): Flow<List<KategorieEntitaet>>
 
     /**
-     * Holt ALLE Kategorien, auch die zur Loeschung vorgemerkten.
-     * Dies ist fuer interne Sync-Logik noetig, um den Zustand aller lokalen Entitaeten zu kennen.
+     * Ruft alle Kategorie-Entitaeten ab, einschliesslich der zur Loeschung vorgemerkten.
+     * Dies wird fuer interne Synchronisationslogik benoetigt.
      * @return Eine Liste aller Kategorie-Entitaeten.
      */
     @Query("SELECT * FROM kategorie")
     suspend fun getAllKategorienIncludingMarkedForDeletion(): List<KategorieEntitaet>
 
     /**
-     * Ruft alle Oeffentlichen Kategorien ab, die lokal geaendert, aber noch nicht synchronisiert wurden.
+     * Ruft alle Kategorien ab, die lokal geaendert, aber noch nicht synchronisiert wurden UND NICHT zur Loeschung vorgemerkt sind.
+     * Diese muessen mit Firestore synchronisiert werden.
      * @return Eine Liste von Kategorie-Entitaeten, die synchronisiert werden muessen.
      */
-    @Query("SELECT * FROM kategorie WHERE istLokalGeaendert = 1 AND istOeffentlich = 1")
+    @Query("SELECT * FROM kategorie WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")
     suspend fun getUnsynchronisierteKategorien(): List<KategorieEntitaet>
 
     /**
-     * Ruft alle Oeffentlichen Kategorien ab, die zur Loeschung vorgemerkt sind.
-     * Diese warten auf die Synchronisierung der Loeschung mit der Cloud-Datenbank.
+     * Ruft alle Kategorien ab, die zur Loeschung vorgemerkt sind.
+     * Diese warten auf die Synchronisierung der Loeschung mit der Cloud-Datenbank oder die lokale endgueltige Entfernung.
      * @return Eine Liste von Kategorie-Entitaeten, die zur Loeschung vorgemerkt sind.
      */
-    @Query("SELECT * FROM kategorie WHERE istLoeschungVorgemerkt = 1 AND istOeffentlich = 1")
+    @Query("SELECT * FROM kategorie WHERE istLoeschungVorgemerkt = 1")
     suspend fun getKategorienFuerLoeschung(): List<KategorieEntitaet>
 
     /**
+     * NEU: Holt alle Kategorien, die von einem anonymen Nutzer erstellt wurden (erstellerId = null)
+     * und nicht zur Loeschung vorgemerkt sind.
+     * @return Eine Liste von Kategorie-Entitaeten zur Migration.
+     */
+    @Query("SELECT * FROM kategorie WHERE erstellerId IS NULL AND istLoeschungVorgemerkt = 0")
+    suspend fun getAnonymeKategorien(): List<KategorieEntitaet>
+
+    /**
      * Loescht eine Kategorie anhand ihrer eindeutigen ID aus der Datenbank.
-     * Dies wird typischerweise nach erfolgreicher Cloud-Synchronisation aufgerufen.
+     * Dies wird typischerweise nach erfolgreicher Cloud-Synchronisation aufgerufen oder fuer private Loeschungen.
      * @param kategorieId Die ID der zu loeschenden Kategorie.
      */
     @Query("DELETE FROM kategorie WHERE kategorieId = :kategorieId")
     suspend fun deleteKategorieById(kategorieId: String)
-
-    /**
-     * Loescht alle Kategorien aus der Datenbank.
-     */
-    @Query("DELETE FROM kategorie")
-    suspend fun deleteAllKategorien()
 }

@@ -1,45 +1,58 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/GeschaeftRepositoryImpl.kt
-// Stand: 2025-06-16_07:55:00, Codezeilen: 237 (Goldstandard Sync-Logik mit istOeffentlich-Flag)
+// Stand: 2025-06-27_12:24:01, Codezeilen: ~570 (Hinzugefuegt: isGeschaeftPrivateAndOwnedBy, Pull-Sync-Logik angepasst)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
-import android.content.Context // Import fuer Context
+import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.MaFiSoft.BuyPal.data.GeschaeftDao
 import com.MaFiSoft.BuyPal.data.GeschaeftEntitaet
 import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
+import com.MaFiSoft.BuyPal.repository.BenutzerRepository
+import com.MaFiSoft.BuyPal.repository.GruppeRepository
+import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository
+import com.MaFiSoft.BuyPal.repository.ArtikelRepository
+import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
+import com.MaFiSoft.BuyPal.repository.ProduktRepository
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.firstOrNull // Fuer das Abrufen eines einzelnen Elements
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.util.Date
-// import java.util.UUID // Nicht mehr benoetigt, da UUID-Generierung hier entfernt wurde
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 /**
  * Implementierung des Geschaeft-Repository.
  * Verwaltet Geschaeftsdaten lokal (Room) und in der Cloud (Firestore) nach dem Room-first-Ansatz.
- * Dieser Code implementiert den "Goldstandard" fuer Push-Pull-Synchronisation nach dem Vorbild von ProduktGeschaeftVerbindungRepositoryImpl.
- * Die ID-Generierung erfolgt NICHT in dieser Methode, sondern muss vor dem Aufruf des Speicherns erfolgen.
+ * Dieser Code implementiert den neuen "Goldstandard" fuer Push-Pull-Synchronisation,
+ * basierend auf Gruppenzugehoerigkeit.
  */
 @Singleton
 class GeschaeftRepositoryImpl @Inject constructor(
-    private val geschaeftDao: GeschaeftDao,
+    val geschaeftDao: GeschaeftDao,
     private val firestore: FirebaseFirestore,
-    private val context: Context // Hinzugefuegt fuer isOnline()
+    private val context: Context,
+    private val benutzerRepositoryProvider: Provider<BenutzerRepository>,
+    private val gruppeRepositoryProvider: Provider<GruppeRepository>,
+    private val produktGeschaeftVerbindungRepositoryProvider: Provider<ProduktGeschaeftVerbindungRepository>,
+    private val artikelRepositoryProvider: Provider<ArtikelRepository>,
+    private val einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository>,
+    private val produktRepositoryProvider: Provider<ProduktRepository>
 ) : GeschaeftRepository {
 
     private val ioScope = CoroutineScope(Dispatchers.IO)
-    private val firestoreCollection = firestore.collection("geschaefte") // Firestore-Sammlung fuer Geschaefte
-    private val TAG = "DEBUG_REPO" // Einheitlicher Tag fuer dieses Repository
+    private val firestoreCollection = firestore.collection("geschaefte")
+    private val TAG = "DEBUG_REPO_GESCHAEFT"
 
-    // Init-Block: Stellt sicher, dass initial Geschaefte aus Firestore in Room sind (Pull-Sync).
     init {
         ioScope.launch {
             Timber.d("$TAG: Initialer Sync: Starte Pull-Synchronisation der Geschaeftsdaten (aus Init-Block).")
@@ -52,42 +65,120 @@ class GeschaeftRepositoryImpl @Inject constructor(
 
     override suspend fun geschaeftSpeichern(geschaeft: GeschaeftEntitaet) {
         Timber.d("$TAG: Versuche Geschaeft lokal zu speichern/aktualisieren: ${geschaeft.name} (ID: ${geschaeft.geschaeftId})")
-
-        // Zuerst versuchen, ein bestehendes Geschaeft abzurufen, um erstellungszeitpunkt und istOeffentlich zu erhalten
         val existingGeschaeft = geschaeftDao.getGeschaeftById(geschaeft.geschaeftId).firstOrNull()
-        Timber.d("$TAG: geschaeftSpeichern: Bestehendes Geschaeft im DAO gefunden: ${existingGeschaeft != null}. Erstellungszeitpunkt (existing): ${existingGeschaeft?.erstellungszeitpunkt}, ZuletztGeaendert (existing): ${existingGeschaeft?.zuletztGeaendert}, IstOeffentlich (existing): ${existingGeschaeft?.istOeffentlich}")
 
-        // KORRIGIERT: Keine automatische ID-Generierung hier. ID muss vor Aufruf gesetzt sein.
         val geschaeftToSave = geschaeft.copy(
-            // erstellungszeitpunkt bleibt NULL fuer neue Eintraege, damit Firestore ihn setzt.
-            // Nur wenn ein bestehendes Geschaeft existiert, seinen erstellungszeitpunkt beibehalten.
-            erstellungszeitpunkt = existingGeschaeft?.erstellungszeitpunkt,
-            // istOeffentlich wird vom uebergebenen Geschaeft uebernommen oder aus existingGeschaeft,
-            // die Logik zum Setzen auf TRUE kommt vom ArtikelRepositoryImpl
-            istOeffentlich = geschaeft.istOeffentlich, // Wichtig: Den uebergebenen Wert beibehalten
+            erstellungszeitpunkt = existingGeschaeft?.erstellungszeitpunkt ?: geschaeft.erstellungszeitpunkt ?: Date(),
             zuletztGeaendert = Date(),
-            istLokalGeaendert = true // Markieren fuer spaeteren Sync
+            istLokalGeaendert = true,
+            istLoeschungVorgemerkt = false
         )
-        geschaeftDao.geschaeftEinfuegen(geschaeftToSave) // Nutzt OnConflictStrategy.REPLACE fuer Insert/Update
-        Timber.d("$TAG: Geschaeft ${geschaeftToSave.name} (ID: ${geschaeftToSave.geschaeftId}) lokal gespeichert/aktualisiert. istLokalGeaendert: ${geschaeftToSave.istLokalGeaendert}, Erstellungszeitpunkt: ${geschaeftToSave.erstellungszeitpunkt}, IstOeffentlich: ${geschaeftToSave.istOeffentlich}")
+        geschaeftDao.geschaeftEinfuegen(geschaeftToSave)
+        Timber.d("$TAG: Geschaeft ${geschaeftToSave.name} (ID: ${geschaeftToSave.geschaeftId}) lokal gespeichert/aktualisiert. istLokalGeaendert: ${geschaeftToSave.istLokalGeaendert}, Erstellungszeitpunkt: ${geschaeftToSave.erstellungszeitpunkt}")
 
-        // ZUSAETZLICHER LOG: Verifikation nach dem Speichern
         val retrievedGeschaeft = geschaeftDao.getGeschaeftById(geschaeftToSave.geschaeftId).firstOrNull()
         if (retrievedGeschaeft != null) {
-            Timber.d("$TAG: VERIFIZIERUNG: Geschaeft nach Speichern erfolgreich aus DB abgerufen. GeschaeftID: '${retrievedGeschaeft.geschaeftId}', Erstellungszeitpunkt: ${retrievedGeschaeft.erstellungszeitpunkt}, ZuletztGeaendert: ${retrievedGeschaeft.zuletztGeaendert}, istLokalGeaendert: ${retrievedGeschaeft.istLokalGeaendert}, IstOeffentlich: ${retrievedGeschaeft.istOeffentlich}")
+            Timber.d("$TAG: VERIFIZIERUNG: Geschaeft nach Speichern erfolgreich aus DB abgerufen. GeschaeftID: '${retrievedGeschaeft.geschaeftId}', Erstellungszeitpunkt: ${retrievedGeschaeft.erstellungszeitpunkt}, ZuletztGeaendert: ${retrievedGeschaeft.zuletztGeaendert}, istLokalGeaendert: ${retrievedGeschaeft.istLokalGeaendert}")
         } else {
             Timber.e("$TAG: VERIFIZIERUNG FEHLGESCHLAGEN: Geschaeft konnte nach Speichern NICHT aus DB abgerufen werden! GeschaeftID: '${geschaeftToSave.geschaeftId}'")
         }
     }
 
     override fun getGeschaeftById(geschaeftId: String): Flow<GeschaeftEntitaet?> {
-        Timber.d("$TAG: Abrufen Geschaeft nach ID: $geschaeftId")
+        Timber.d("$TAG: Abrufen Geschaeft nach ID (implementiert): $geschaeftId")
         return geschaeftDao.getGeschaeftById(geschaeftId)
     }
 
     override fun getAllGeschaefte(): Flow<List<GeschaeftEntitaet>> {
-        Timber.d("$TAG: Abrufen aller aktiven Geschaefte.")
+        Timber.d("$TAG: Abrufen aller aktiven Geschaefte (nicht zur Loeschung vorgemerkt).")
         return geschaeftDao.getAllGeschaefte()
+    }
+
+    /**
+     * Bestimmt, ob ein Geschaeft mit einer der relevanten Gruppen des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Geschaeft -> ProduktGeschaeftVerbindung -> Produkt -> Artikel -> Einkaufsliste -> Gruppe.
+     *
+     * @param geschaeftId Die ID des zu pruefenden Geschaefts.
+     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
+     * @return True, wenn das Geschaeft mit einer relevanten Gruppe verknuepft ist, sonst False.
+     */
+    override suspend fun isGeschaeftLinkedToRelevantGroup(geschaeftId: String, meineGruppenIds: List<String>): Boolean {
+        val produktGeschaeftVerbindungRepo = produktGeschaeftVerbindungRepositoryProvider.get()
+        val produktRepo = produktRepositoryProvider.get()
+
+        val verbindungenFuerGeschaeft = produktGeschaeftVerbindungRepo.getVerbindungenByGeschaeftIdSynchronous(geschaeftId)
+        if (verbindungenFuerGeschaeft.isEmpty()) return false
+
+        for (verbindung in verbindungenFuerGeschaeft) {
+            // Pruefe, ob das verknuepfte Produkt der Verbindung relevant ist
+            if (produktRepo.isProduktLinkedToRelevantGroup(verbindung.produktId, meineGruppenIds)) {
+                Timber.d("$TAG: Geschaeft '$geschaeftId' ist mit relevanter Gruppe ueber Produkt '${verbindung.produktId}' verknuepft.")
+                return true // Geschaeft ist mit relevanter Gruppe verknuepft
+            }
+        }
+        return false
+    }
+
+    /**
+     * NEU: Prueft, ob ein Geschaeft eine private Kategorie des aktuellen Benutzers ist.
+     * Ein Geschaeft ist privat, wenn es in einer ProduktGeschaeftVerbindung enthalten ist,
+     * die wiederum in einem Produkt enthalten ist, das in einem Artikel enthalten ist,
+     * der in einer Einkaufsliste mit 'gruppeId = null' enthalten ist UND
+     * die 'erstellerId' dieser Einkaufsliste der 'aktuellerBenutzerId' entspricht.
+     *
+     * @param geschaeftId Die ID des zu pruefenden Geschaefts.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn das Geschaeft in einer privaten Einkaufsliste des Benutzers ist, sonst False.
+     */
+    override suspend fun isGeschaeftPrivateAndOwnedBy(geschaeftId: String, aktuellerBenutzerId: String): Boolean {
+        val produktGeschaeftVerbindungRepo = produktGeschaeftVerbindungRepositoryProvider.get()
+        val produktRepo = produktRepositoryProvider.get()
+        val artikelRepo = artikelRepositoryProvider.get()
+        val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
+
+        val verbindungenFuerGeschaeft = produktGeschaeftVerbindungRepo.getVerbindungenByGeschaeftIdSynchronous(geschaeftId)
+
+        for (verbindung in verbindungenFuerGeschaeft) {
+            val produkt = produktRepo.getProduktById(verbindung.produktId).firstOrNull()
+            produkt?.let {
+                val artikelDieProduktNutzen = artikelRepo.getArtikelByProduktIdSynchronous(it.produktId)
+                for (artikel in artikelDieProduktNutzen) {
+                    artikel.einkaufslisteId?.let { einkaufslisteId ->
+                        if (einkaufslisteRepo.isEinkaufslistePrivateAndOwnedBy(einkaufslisteId, aktuellerBenutzerId)) {
+                            Timber.d("$TAG: Geschaeft '$geschaeftId' ist privat und gehoert Benutzer '$aktuellerBenutzerId' ueber Verbindung '${verbindung.produktId}-${verbindung.geschaeftId}' -> Produkt '${produkt.produktId}' -> Artikel '${artikel.artikelId}' -> Einkaufsliste '$einkaufslisteId'.")
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    /**
+     * NEU: Migriert alle anonymen Geschaefte (erstellerId = null) zum angegebenen Benutzer.
+     * Die Primärschlüssel der Geschaefte bleiben dabei unverändert.
+     * @param neuerBenutzerId Die ID des Benutzers, dem die anonymen Geschaefte zugeordnet werden sollen.
+     */
+    override suspend fun migriereAnonymeGeschaefte(neuerBenutzerId: String) {
+        Timber.d("$TAG: Starte Migration anonymer Geschaefte zu Benutzer-ID: $neuerBenutzerId")
+        try {
+            val anonymeGeschaefte = geschaeftDao.getAnonymeGeschaefte()
+            Timber.d("$TAG: ${anonymeGeschaefte.size} anonyme Geschaefte zur Migration gefunden.")
+
+            anonymeGeschaefte.forEach { geschaeft ->
+                val aktualisiertesGeschaeft = geschaeft.copy(
+                    erstellerId = neuerBenutzerId, // erstellerId setzen
+                    zuletztGeaendert = Date(), // Zeitstempel aktualisieren
+                    istLokalGeaendert = true // Fuer naechsten Sync markieren
+                )
+                geschaeftDao.geschaeftEinfuegen(aktualisiertesGeschaeft) // Verwendet REPLACE, um den bestehenden Datensatz zu aktualisieren
+                Timber.d("$TAG: Geschaeft '${geschaeft.name}' (ID: ${geschaeft.geschaeftId}) von erstellerId=NULL zu $neuerBenutzerId migriert.")
+            }
+            Timber.d("$TAG: Migration anonymer Geschaefte abgeschlossen.")
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: FEHLER bei der Migration anonymer Geschaefte: ${e.message}")
+        }
     }
 
     override suspend fun markGeschaeftForDeletion(geschaeft: GeschaeftEntitaet) {
@@ -95,23 +186,19 @@ class GeschaeftRepositoryImpl @Inject constructor(
         val geschaeftLoeschenVorgemerkt = geschaeft.copy(
             istLoeschungVorgemerkt = true,
             zuletztGeaendert = Date(),
-            istLokalGeaendert = true // Auch eine Loeschung ist eine lokale Aenderung, die gesynct werden muss
+            istLokalGeaendert = true
         )
         geschaeftDao.geschaeftAktualisieren(geschaeftLoeschenVorgemerkt)
-        Timber.d("$TAG: Geschaeft ${geschaeftLoeschenVorgemerkt.name} (ID: ${geschaeftLoeschenVorgemerkt.geschaeftId}) lokal zur Loeschung vorgemerkt. istLoeschungVorgemerkt: ${geschaeftLoeschenVorgemerkt.istLoeschungVorgemerkt}")
+        Timber.d("$TAG: Geschaeft ${geschaeftLoeschenVorgemerkt.name} (ID: ${geschaeftLoeschenVorgemerkt.geschaeftId}) lokal zur Loeschung vorgemerkt. istLoeschungVorgemerkt: ${geschaeftLoeschenVorgemerkt.istLoeschungVorgemerkt}, istLokalGeaendert: ${geschaeftLoeschenVorgemerkt.istLokalGeaendert}")
     }
 
     override suspend fun loescheGeschaeft(geschaeftId: String) {
         Timber.d("$TAG: Geschaeft endgueltig loeschen (lokal): $geschaeftId")
         try {
-            // Hinweis: Das endgueltige Loeschen aus Firestore sollte primaer durch den Sync-Prozess erfolgen,
-            // nachdem das Geschaeft zur Loeschung vorgemerkt und hochgeladen wurde.
-            // Direkte Loeschung hier nur, wenn es kein Problem darstellt.
-            // In dieser Implementierung wird der Sync-Manager dies handhaben.
             geschaeftDao.deleteGeschaeftById(geschaeftId)
-            Timber.d("$TAG: Geschaeft $geschaeftId erfolgreich lokal geloescht.")
+            Timber.d("$TAG: Geschaeft $geschaeftId erfolgreich lokal endgueltig geloescht.")
         } catch (e: Exception) {
-            Timber.e(e, "$TAG: Fehler beim endgueltigen Loeschen von Geschaeft $geschaeftId.")
+            Timber.e(e, "$TAG: Fehler beim endgueltigen Loeschen von Geschaeft $geschaeftId lokal. ${e.message}")
         }
     }
 
@@ -120,156 +207,248 @@ class GeschaeftRepositoryImpl @Inject constructor(
     override suspend fun syncGeschaefteDaten() {
         Timber.d("$TAG: Starte manuelle Synchronisation der Geschaeftsdaten.")
 
-        if (!isOnline()) { // Ueberpruefung der Internetverbindung hinzugefuegt
+        if (!isOnline()) {
             Timber.d("$TAG: Keine Internetverbindung fuer Synchronisation verfuegbar.")
             return
         }
 
-        // 1. Lokale Loeschungen zu Firestore pushen (DAO filtert bereits nach istOeffentlich = 1)
+        val aktuellerBenutzer = benutzerRepositoryProvider.get().getAktuellerBenutzer().firstOrNull()
+        val aktuellerBenutzerId = aktuellerBenutzer?.benutzerId ?: run {
+            Timber.w("$TAG: Kein angemeldeter Benutzer fuer Sync gefunden. Synchronisation abgebrochen.")
+            return
+        }
+
+        val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
+            .firstOrNull()
+            ?.map { it.gruppeId }
+            ?: emptyList()
+
+        Timber.d("$TAG: Sync Push: Starte Push-Phase fuer Geschaefte.")
+
+        val isGeschaeftRelevantForSync: suspend (GeschaeftEntitaet) -> Boolean = { geschaeft ->
+            this.isGeschaeftLinkedToRelevantGroup(geschaeft.geschaeftId, meineGruppenIds) ||
+                    this.isGeschaeftPrivateAndOwnedBy(geschaeft.geschaeftId, aktuellerBenutzerId) // NEU: Auch private, eigene Geschaefte sind relevant
+        }
+
+        // 1a. Lokale Loeschungen zu Firestore pushen
         val geschaefteFuerLoeschung = geschaeftDao.getGeschaefteFuerLoeschung()
+        Timber.d("$TAG: Sync Push: ${geschaefteFuerLoeschung.size} Geschaefte zur Loeschung vorgemerkt lokal gefunden.")
         for (geschaeft in geschaefteFuerLoeschung) {
-            try {
-                Timber.d("$TAG: Sync: Push Loeschung fuer Geschaeft: ${geschaeft.name} (ID: ${geschaeft.geschaeftId})")
-                firestoreCollection.document(geschaeft.geschaeftId).delete().await()
-                geschaeftDao.deleteGeschaeftById(geschaeft.geschaeftId)
-                Timber.d("$TAG: Sync: Geschaeft ${geschaeft.name} (ID: ${geschaeft.geschaeftId}) erfolgreich aus Firestore und lokal geloescht.")
-            } catch (e: Exception) {
-                Timber.e(e, "$TAG: Sync: Fehler beim Loeschen von Geschaeft ${geschaeft.name} (ID: ${geschaeft.geschaeftId}) aus Firestore.")
-                // Fehlerbehandlung: Geschaeft bleibt zur Loeschung vorgemerkt, wird spaeter erneut versucht
-            }
-        }
+            val firestoreDocId = geschaeft.geschaeftId
+            val istRelevantFuerSync = isGeschaeftRelevantForSync(geschaeft)
 
-        // 2. Lokale Hinzufuegungen/Aenderungen zu Firestore pushen (DAO filtert bereits nach istOeffentlich = 1)
-        val unsynchronisierteGeschaefte = geschaeftDao.getUnsynchronisierteGeschaefte()
-        for (geschaeft in unsynchronisierteGeschaefte) {
-            try {
-                // Nur speichern/aktualisieren, wenn nicht fuer Loeschung vorgemerkt
-                if (!geschaeft.istLoeschungVorgemerkt) {
-                    // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false FUER FIRESTORE, da der Datensatz jetzt synchronisiert wird
-                    // istOeffentlich bleibt so, wie es ist (sollte 1 sein, da DAO bereits gefiltert hat)
-                    val geschaeftFuerFirestore = geschaeft.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
-                    Timber.d("$TAG: Sync: Push Upload/Update fuer Geschaeft: ${geschaeft.name} (ID: ${geschaeft.geschaeftId}), IstOeffentlich: ${geschaeft.istOeffentlich}")
-                    firestoreCollection.document(geschaeft.geschaeftId).set(geschaeftFuerFirestore).await()
-                    // Nach erfolgreichem Upload lokale Flags zuruecksetzen
-                    geschaeftDao.geschaeftEinfuegen(geschaeft.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)) // Verwende Einfuegen, da REPLACE
-                    Timber.d("$TAG: Sync: Geschaeft ${geschaeft.name} (ID: ${geschaeft.geschaeftId}) erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
+            if (istRelevantFuerSync) {
+                try {
+                    Timber.d("$TAG: Sync Push: Versuch Loeschung des Geschaefts von Firestore: ${geschaeft.name} (ID: ${firestoreDocId}).")
+                    firestore.collection("geschaefte").document(firestoreDocId).delete().await() // expliziter Zugriff auf collection
+                    Timber.d("$TAG: Sync Push: Geschaeft von Firestore geloescht.")
+                } catch (e: Exception) {
+                    Timber.e(e, "$TAG: Sync Push: FEHLER beim Loeschen von Geschaeft ${firestoreDocId} aus Firestore: ${e.message}. Faehre mit lokaler Loeschung fort.")
+                } finally {
+                    geschaeftDao.deleteGeschaeftById(geschaeft.geschaeftId)
+                    Timber.d("$TAG: Sync Push: Lokales Geschaeft (ID: '${geschaeft.geschaeftId}') nach Firestore-Loeschung (oder Versuch) endgueltig entfernt.")
                 }
-            } catch (e: Exception) {
-                Timber.e(e, "$TAG: Sync: Fehler beim Hochladen von Geschaeft ${geschaeft.name} (ID: ${geschaeft.geschaeftId}) zu Firestore.")
-                // Fehlerbehandlung: Geschaeft bleibt als lokal geaendert markiert, wird spaeter erneut versucht
+            } else {
+                Timber.d("$TAG: Sync Push: Geschaeft ${geschaeft.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Lokales Flag 'istLokalGeaendert' zuruecksetzen.")
+                geschaeftDao.geschaeftAktualisieren(geschaeft.copy(istLokalGeaendert = false))
             }
         }
 
-        // 3. Firestore-Daten herunterladen und lokale Datenbank aktualisieren (Last-Write-Wins)
-        Timber.d("$TAG: Sync: Starte Pull-Phase der Synchronisation fuer Geschaeftsdaten.")
-        performPullSync() // Ausgelagert in separate Funktion
-        Timber.d("$TAG: Sync: Synchronisation der Geschaeftsdaten abgeschlossen.")
+        // 1b. Lokale Hinzufuegungen/Aenderungen zu Firestore pushen
+        val unsynchronisierteGeschaefte = geschaeftDao.getUnsynchronisierteGeschaefte()
+        Timber.d("$TAG: Sync Push: ${unsynchronisierteGeschaefte.size} unsynchronisierte Geschaefte lokal gefunden.")
+        for (geschaeft in unsynchronisierteGeschaefte) {
+            val firestoreDocId = geschaeft.geschaeftId
+            val istRelevantFuerSync = isGeschaeftRelevantForSync(geschaeft)
+
+            if (!geschaeft.istLoeschungVorgemerkt) {
+                if (istRelevantFuerSync) {
+                    val geschaeftFuerFirestore = geschaeft.copy(
+                        istLokalGeaendert = false,
+                        istLoeschungVorgemerkt = false
+                    )
+                    try {
+                        firestore.collection("geschaefte").document(firestoreDocId).set(geschaeftFuerFirestore).await() // expliziter Zugriff auf collection
+                        geschaeftDao.geschaeftAktualisieren(geschaeft.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                        Timber.d("$TAG: Sync Push: Geschaeft erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
+                    } catch (e: Exception) {
+                        Timber.e(e, "$TAG: Sync Push: FEHLER beim Hochladen von Geschaeft ${geschaeft.name} (ID: ${firestoreDocId}) zu Firestore: ${e.message}.")
+                    }
+                } else {
+                    Timber.d("$TAG: Sync Push: Geschaeft ${geschaeft.name} (ID: ${firestoreDocId}) ist lokal geaendert, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Kein Upload zu Firestore. Setze istLokalGeaendert zurueck.")
+                    geschaeftDao.geschaeftAktualisieren(geschaeft.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                }
+            } else {
+                Timber.d("$TAG: Sync Push: Geschaeft ${geschaeft.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt. Kein Upload zu Firestore, wird separat gehandhabt.")
+            }
+        }
+
+        Timber.d("$TAG: Sync Pull: Starte Pull-Phase der Synchronisation fuer Geschaeftsdaten.")
+        performPullSync()
+        Timber.d("$TAG: Sync Pull: Synchronisation der Geschaeftsdaten abgeschlossen.")
     }
 
-    // Ausgelagerte Funktion fuer den Pull-Sync-Teil mit detaillierterem Logging (Goldstandard-Logik)
+    /**
+     * Fuehrt den Pull-Synchronisationsprozess fuer Geschaefte aus.
+     * Zieht Geschaefte von Firestore herunter, die mit Produkt-Geschaeft-Verbindungen verknuepft sind,
+     * welche wiederum fuer den aktuellen Benutzer aufgrund seiner Gruppenzugehoerigkeit oder privater Nutzung relevant sind.
+     * Die erstellerId des Geschaefts ist fuer die Sync-Entscheidung irrelevant.
+     */
     private suspend fun performPullSync() {
         Timber.d("$TAG: performPullSync aufgerufen.")
         try {
-            val firestoreSnapshot = firestoreCollection.get().await()
-            val firestoreGeschaeftList = firestoreSnapshot.toObjects(GeschaeftEntitaet::class.java)
-            Timber.d("$TAG: Sync Pull: ${firestoreGeschaeftList.size} Geschaefte von Firestore abgerufen.")
-            // ZUSAETZLICHER LOG: Erstellungszeitpunkt direkt nach Firestore-Deserialisierung pruefen
-            firestoreGeschaeftList.forEach { fg ->
-                Timber.d("$TAG: Sync Pull (Firestore-Deserialisierung): GeschaeftID: '${fg.geschaeftId}', Erstellungszeitpunkt: ${fg.erstellungszeitpunkt}, ZuletztGeaendert: ${fg.zuletztGeaendert}, IstOeffentlich: ${fg.istOeffentlich}")
+            val aktuellerBenutzer = benutzerRepositoryProvider.get().getAktuellerBenutzer().firstOrNull()
+            val aktuellerBenutzerId = aktuellerBenutzer?.benutzerId ?: run {
+                Timber.w("$TAG: performPullSync: Aktueller Benutzer nicht gefunden. Geschaeft-Pull wird uebersprungen.")
+                return
             }
 
+            val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
+                .firstOrNull()
+                ?.map { it.gruppeId }
+                ?: emptyList()
+
+            // Benötigte Repository-Instanzen
+            val produktGeschaeftVerbindungRepo = produktGeschaeftVerbindungRepositoryProvider.get()
+            val produktRepo = produktRepositoryProvider.get()
+            val artikelRepo = artikelRepositoryProvider.get()
+            val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
+
+            // Schritt 1: Sammle alle relevanten Produkt- und Artikel-IDs basierend auf Gruppenverknuepfung ODER privater Nutzung
+            val relevantEinkaufslistenIds = mutableSetOf<String>()
+            val relevantArtikelIds = mutableSetOf<String>()
+            val relevantProduktIds = mutableSetOf<String>()
+            val relevantProduktGeschaeftVerbindungIds = mutableSetOf<Pair<String, String>>() // Pair<ProduktID, GeschaeftID>
+
+            // 1.1 Finde alle Einkaufslisten, die zu meinen Gruppen gehoeren
+            for (gruppeId in meineGruppenIds) {
+                val einkaufslistenInGruppe = einkaufslisteRepo.getEinkaufslistenByGruppeIdSynchronous(gruppeId)
+                relevantEinkaufslistenIds.addAll(einkaufslistenInGruppe.map { it.einkaufslisteId })
+            }
+
+            // 1.2 Finde alle privaten Einkaufslisten des aktuellen Benutzers
+            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslisten().firstOrNull() ?: emptyList()
+            privateEinkaufslisten.filter { it.erstellerId == aktuellerBenutzerId && it.gruppeId == null }
+                .map { it.einkaufslisteId }
+                .let { relevantEinkaufslistenIds.addAll(it) }
+
+            // 1.3 Finde alle Artikel, die zu diesen relevanten Einkaufslisten gehoeren
+            for (einkaufslisteId in relevantEinkaufslistenIds) {
+                val artikelInEinkaufsliste = artikelRepo.getArtikelByEinkaufslisteIdSynchronous(einkaufslisteId)
+                artikelInEinkaufsliste.forEach { artikel ->
+                    artikel.produktId?.let { relevantProduktIds.add(it) }
+                }
+            }
+
+            // 1.4 Finde alle Produkt-Geschaeft-Verbindungen, die mit relevanten Produkten verknuepft sind
+            val chunkedRelevantProduktIdsForVerbindungLookup = relevantProduktIds.chunked(10)
+            for (chunk in chunkedRelevantProduktIdsForVerbindungLookup) {
+                if (chunk.isNotEmpty()) {
+                    val verbindungenSnapshot = firestore.collection("produktgeschaeftverbindungen")
+                        .whereIn("produktId", chunk.toList())
+                        .get().await()
+                    verbindungenSnapshot.forEach { doc ->
+                        relevantProduktGeschaeftVerbindungIds.add(Pair(doc.getString("produktId")!!, doc.getString("geschaeftId")!!))
+                    }
+                }
+            }
+            Timber.d("$TAG: Sync Pull: ${relevantProduktGeschaeftVerbindungIds.size} relevante Produkt-Geschaeft-Verbindungen (via Produkte) gefunden.")
+
+            // Schritt 2: Lade Geschaefte von Firestore herunter, die diese relevanten Produkt-Geschaeft-Verbindungen referenzieren
+            val firestoreGeschaeftList = mutableListOf<GeschaeftEntitaet>()
+
+            // Sammle alle Geschaefts-IDs aus diesen relevanten Verbindungen
+            val geschaeftIdsToPull = relevantProduktGeschaeftVerbindungIds.map { it.second }.toSet()
+            Timber.d("$TAG: Sync Pull: ${geschaeftIdsToPull.size} relevante Geschaeft-IDs fuer Pull.")
+
+            // Lade Geschaefte von Firestore herunter, die diese Geschaefts-IDs haben
+            val chunkedGeschaeftIdsToPull = geschaeftIdsToPull.chunked(10)
+            for (chunk in chunkedGeschaeftIdsToPull) {
+                if (chunk.isNotEmpty()) {
+                    val chunkSnapshot: QuerySnapshot = firestoreCollection
+                        .whereIn("geschaeftId", chunk.toList())
+                        .get().await()
+                    firestoreGeschaeftList.addAll(chunkSnapshot.toObjects(GeschaeftEntitaet::class.java))
+                }
+            }
+
+            val uniqueFirestoreGeschaefte = firestoreGeschaeftList.distinctBy { it.geschaeftId }
+            Timber.d("$TAG: Sync Pull: ${uniqueFirestoreGeschaefte.size} Geschaefte von Firestore abgerufen (nach umfassender Relevanzpruefung).")
+
             val allLocalGeschaefte = geschaeftDao.getAllGeschaefteIncludingMarkedForDeletion()
-            val localGeschaefteMap = allLocalGeschaefte.associateBy { it.geschaeftId }
+            val localGeschaeftMap = allLocalGeschaefte.associateBy { it.geschaeftId }
             Timber.d("$TAG: Sync Pull: ${allLocalGeschaefte.size} Geschaefte lokal gefunden (inkl. geloeschter/geaenderter).")
 
-            for (firestoreGeschaeft in firestoreGeschaeftList) {
-                val lokalesGeschaeft = localGeschaefteMap[firestoreGeschaeft.geschaeftId]
-                Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Geschaeft: ${firestoreGeschaeft.name} (ID: ${firestoreGeschaeft.geschaeftId}), IstOeffentlich: ${firestoreGeschaeft.istOeffentlich}")
+            for (firestoreGeschaeft in uniqueFirestoreGeschaefte) {
+                val lokalesGeschaeft = localGeschaeftMap[firestoreGeschaeft.geschaeftId]
+                Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Geschaeft: ${firestoreGeschaeft.name} (ID: ${firestoreGeschaeft.geschaeftId})")
+
+                val isGeschaeftRelevantForPull = isGeschaeftLinkedToRelevantGroup(firestoreGeschaeft.geschaeftId, meineGruppenIds) ||
+                        isGeschaeftPrivateAndOwnedBy(firestoreGeschaeft.geschaeftId, aktuellerBenutzerId)
 
                 if (lokalesGeschaeft == null) {
-                    // Geschaeft existiert nur in Firestore, lokal einfuegen
-                    // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false, da es von Firestore kommt und synchronisiert ist
-                    // NEU: istOeffentlich wird auf TRUE gesetzt, da es von Firestore kommt
-                    val newGeschaeftInRoom = firestoreGeschaeft.copy(
-                        istLokalGeaendert = false,
-                        istLoeschungVorgemerkt = false,
-                        istOeffentlich = true // Von Firestore kommt nur oeffentliches Material
-                    )
-                    geschaeftDao.geschaeftEinfuegen(newGeschaeftInRoom) // Verwende einfuegen, da @Insert(onConflict = REPLACE) ein Update durchfuehrt
-                    Timber.d("$TAG: Sync Pull: NEUES Geschaeft ${newGeschaeftInRoom.name} (ID: ${newGeschaeftInRoom.geschaeftId}) von Firestore in Room HINZUGEFUEGT. Erstellungszeitpunkt in Room: ${newGeschaeftInRoom.erstellungszeitpunkt}, IstOeffentlich: ${newGeschaeftInRoom.istOeffentlich}.")
+                    if (isGeschaeftRelevantForPull) { // Nur hinzufügen, wenn relevant
+                        val newGeschaeftInRoom = firestoreGeschaeft.copy(
+                            istLokalGeaendert = false,
+                            istLoeschungVorgemerkt = false
+                        )
+                        geschaeftDao.geschaeftEinfuegen(newGeschaeftInRoom)
+                        Timber.d("$TAG: Sync Pull: NEUES Geschaeft ${newGeschaeftInRoom.name} (ID: ${newGeschaeftInRoom.geschaeftId}) von Firestore in Room HINZUGEFUEGT (relevant).")
+                    } else {
+                        Timber.d("$TAG: Sync Pull: Geschaeft ${firestoreGeschaeft.name} (ID: ${firestoreGeschaeft.geschaeftId}) von Firestore nicht relevant fuer Pull. Wird ignoriert.")
+                    }
                 } else {
-                    Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${lokalesGeschaeft.name} (ID: ${lokalesGeschaeft.geschaeftId}) gefunden. Lokal geaendert: ${lokalesGeschaeft.istLokalGeaendert}, Zur Loeschung vorgemerkt: ${lokalesGeschaeft.istLoeschungVorgemerkt}, IstOeffentlich: ${lokalesGeschaeft.istOeffentlich}.")
+                    Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${lokalesGeschaeft.name} (ID: ${lokalesGeschaeft.geschaeftId}) gefunden. Lokal geaendert: ${lokalesGeschaeft.istLokalGeaendert}, Zur Loeschung vorgemerkt: ${lokalesGeschaeft.istLoeschungVorgemerkt}.")
 
-                    // Prioritaeten der Konfliktloesung:
-                    // 1. Wenn lokal zur Loeschung vorgemerkt, lokale Version beibehalten (wird im Push geloescht)
                     if (lokalesGeschaeft.istLoeschungVorgemerkt) {
-                        Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${lokalesGeschaeft.name} ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert.")
-                        continue // Naechstes Firestore-Geschaeft verarbeiten
+                        Timber.d("$TAG: Sync Pull: Lokales Geschaeft ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert (wird im Push-Sync geloescht).")
+                        continue
                     }
-                    // 2. Wenn lokal geaendert, lokale Version beibehalten (wird im Push hochgeladen)
                     if (lokalesGeschaeft.istLokalGeaendert) {
-                        Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${lokalesGeschaeft.name} ist lokal geaendert. Pull-Version von Firestore wird ignoriert.")
-                        continue // Naechstes Firestore-Geschaeft verarbeiten
+                        Timber.d("$TAG: Sync Pull: Lokales Geschaeft ist lokal geaendert. Pull-Version von Firestore wird ignoriert (wird im Push-Sync hochgeladen).")
+                        continue
                     }
 
-                    // 3. Wenn Firestore-Version zur Loeschung vorgemerkt ist, lokal loeschen (da lokale Version nicht geaendert ist und nicht zur Loeschung vorgemerkt)
-                    if (firestoreGeschaeft.istLoeschungVorgemerkt) {
-                        geschaeftDao.deleteGeschaeftById(lokalesGeschaeft.geschaeftId)
-                        Timber.d("$TAG: Sync Pull: Geschaeft ${lokalesGeschaeft.name} lokal GELOECHT, da in Firestore als geloescht markiert und lokale Version nicht veraendert.")
-                        continue // Naechstes Firestore-Geschaeft verarbeiten
-                    }
-
-                    // --- ZUSAETZLICHE PRUEFUNG fuer Erstellungszeitpunkt (GOLDSTANDARD-ANPASSUNG) ---
-                    // Wenn erstellungszeitpunkt lokal null ist, aber von Firestore einen Wert hat, aktualisieren
-                    val shouldUpdateErstellungszeitpunkt =
-                        lokalesGeschaeft.erstellungszeitpunkt == null && firestoreGeschaeft.erstellungszeitpunkt != null
-                    if (shouldUpdateErstellungszeitpunkt) {
-                        Timber.d("$TAG: Sync Pull: Erstellungszeitpunkt von NULL auf Firestore-Wert aktualisiert fuer GeschaeftID: '${lokalesGeschaeft.geschaeftId}'.")
-                    }
-                    // --- Ende der ZUSAETZLICHEN PRUEFUNG ---
-
-                    // 4. Last-Write-Wins basierend auf Zeitstempel (wenn keine Konflikte nach Prioritaeten 1-3)
                     val firestoreTimestamp = firestoreGeschaeft.zuletztGeaendert ?: firestoreGeschaeft.erstellungszeitpunkt
                     val localTimestamp = lokalesGeschaeft.zuletztGeaendert ?: lokalesGeschaeft.erstellungszeitpunkt
 
                     val isFirestoreNewer = when {
-                        firestoreTimestamp == null && localTimestamp == null -> false // Beide null, keine klare Entscheidung, lokale Version (die ja nicht geaendert ist) behalten
-                        firestoreTimestamp != null && localTimestamp == null -> true // Firestore hat Timestamp, lokal nicht, Firestore ist neuer
-                        firestoreTimestamp == null && localTimestamp != null -> false // Lokal hat Timestamp, Firestore nicht, lokal ist neuer
-                        firestoreTimestamp != null && localTimestamp != null -> firestoreTimestamp.after(localTimestamp) // Beide haben Timestamps, vergleichen
-                        else -> false // Sollte nicht passieren
+                        firestoreTimestamp == null && localTimestamp == null -> false
+                        firestoreTimestamp != null && localTimestamp == null -> true
+                        localTimestamp != null && firestoreTimestamp == null -> false
+                        else -> firestoreTimestamp!!.after(localTimestamp!!)
                     }
 
-                    // Führen Sie ein Update durch, wenn Firestore neuer ist ODER der Erstellungszeitpunkt aktualisiert werden muss
-                    if (isFirestoreNewer || shouldUpdateErstellungszeitpunkt) {
-                        // Firestore ist neuer und lokale Version ist weder zur Loeschung vorgemerkt noch lokal geaendert (da durch 'continue' oben abgefangen)
-                        // NEU: istOeffentlich wird auf TRUE gesetzt, da es von Firestore kommt
+                    if (isFirestoreNewer) {
                         val updatedGeschaeft = firestoreGeschaeft.copy(
-                            // Erstellungszeitpunkt aus Firestore verwenden, da er der "Quelle der Wahrheit" ist
-                            erstellungszeitpunkt = firestoreGeschaeft.erstellungszeitpunkt,
-                            istLokalGeaendert = false, // Ist jetzt synchronisiert
-                            istLoeschungVorgemerkt = false,
-                            istOeffentlich = true // Von Firestore kommt nur oeffentliches Material
+                            istLokalGeaendert = false,
+                            istLoeschungVorgemerkt = false
                         )
-                        geschaeftDao.geschaeftEinfuegen(updatedGeschaeft) // Verwende einfuegen, da @Insert(onConflict = REPLACE) ein Update durchfuehrt
-                        Timber.d("$TAG: Sync Pull: Geschaeft ${updatedGeschaeft.name} (ID: ${updatedGeschaeft.geschaeftId}) von Firestore in Room AKTUALISIERT (Firestore neuer ODER erstellungszeitpunkt aktualisiert). Erstellungszeitpunkt in Room: ${updatedGeschaeft.erstellungszeitpunkt}, IstOeffentlich: ${updatedGeschaeft.istOeffentlich}.")
+                        geschaeftDao.geschaeftEinfuegen(updatedGeschaeft)
+                        Timber.d("$TAG: Sync Pull: Geschaeft ${updatedGeschaeft.name} (ID: ${updatedGeschaeft.geschaeftId}) von Firestore in Room AKTUALISIERT (Firestore neuer).")
                     } else {
-                        Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${lokalesGeschaeft.name} (ID: ${lokalesGeschaeft.geschaeftId}) ist aktueller oder gleich, oder Firestore-Version ist nicht neuer. KEINE AKTUALISIERUNG von Firestore.")
+                        Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${lokalesGeschaeft.name} (ID: ${lokalesGeschaeft.geschaeftId}) ist aktueller oder gleich. KEINE AKTUALISIERUNG durch Pull.")
                     }
                 }
             }
 
-            // 5. Lokale Geschaefte finden, die in Firestore nicht mehr existieren und lokal NICHT zur Loeschung vorgemerkt sind
-            val firestoreGeschaeftIds = firestoreGeschaeftList.map { it.geschaeftId }.toSet()
-
+            val uniqueFirestoreGeschaeftIds = uniqueFirestoreGeschaefte.map { it.geschaeftId }.toSet()
             for (localGeschaeft in allLocalGeschaefte) {
-                // NEU: Pruefung, ob das lokale Geschaeft oeffentlich ist. Persoenliche Geschaefte werden NICHT geloescht.
-                if (localGeschaeft.geschaeftId.isNotEmpty() && !firestoreGeschaeftIds.contains(localGeschaeft.geschaeftId) &&
-                    !localGeschaeft.istLoeschungVorgemerkt && !localGeschaeft.istLokalGeaendert && localGeschaeft.istOeffentlich) { // <--- WICHTIGE NEUE HINZUFUEGUNG
+                val istRelevantFuerBenutzer = isGeschaeftLinkedToRelevantGroup(localGeschaeft.geschaeftId, meineGruppenIds) ||
+                        isGeschaeftPrivateAndOwnedBy(localGeschaeft.geschaeftId, aktuellerBenutzerId)
+
+                // Lokales Geschaeft loeschen, wenn es nicht mehr in Firestore vorhanden ist
+                // UND nicht lokal geaendert/vorgemerkt ist
+                // UND nicht relevant fuer diesen Benutzer ist (keine Gruppenverbindung ODER nicht privat/eigen)
+                if (!uniqueFirestoreGeschaeftIds.contains(localGeschaeft.geschaeftId) &&
+                    !localGeschaeft.istLoeschungVorgemerkt && !localGeschaeft.istLokalGeaendert &&
+                    !istRelevantFuerBenutzer) {
                     geschaeftDao.deleteGeschaeftById(localGeschaeft.geschaeftId)
-                    Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${localGeschaeft.name} (ID: ${localGeschaeft.geschaeftId}) GELOECHT, da nicht mehr in Firestore vorhanden und lokal NICHT zur Loeschung vorgemerkt UND NICHT lokal geaendert UND istOeffentlich war.")
-                } else if (!localGeschaeft.istOeffentlich) { // Zusaetzlicher Log fuer persoenliche Geschaefte
-                    Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${localGeschaeft.name} (ID: ${localGeschaeft.geschaeftId}) ist persoenlich (istOeffentlich=false) und nicht in Firestore. Bleibt lokal erhalten.")
+                    Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${localGeschaeft.name} (ID: ${localGeschaeft.geschaeftId}) GELÖSCHT, da nicht mehr in Firestore vorhanden UND nicht relevant fuer diesen Benutzer UND lokal synchronisiert war.")
+                } else if (istRelevantFuerBenutzer) {
+                    Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${localGeschaeft.name} (ID: ${localGeschaeft.geschaeftId}) BLEIBT LOKAL, da es noch fuer diesen Benutzer relevant ist (mit relevanter Gruppe verbunden ODER privat/eigen).")
+                } else {
+                    Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${localGeschaeft.name} (ID: ${localGeschaeft.geschaeftId}) BLEIBT LOKAL (Grund: ${if(localGeschaeft.istLokalGeaendert) "lokal geaendert" else if (localGeschaeft.istLoeschungVorgemerkt) "zur Loeschung vorgemerkt" else "nicht remote gefunden, aber dennoch lokal behalten, da es nicht als nicht-relevant identifiziert wurde."}).")
                 }
             }
             Timber.d("$TAG: Sync Pull: Pull-Synchronisation der Geschaeftsdaten abgeschlossen.")

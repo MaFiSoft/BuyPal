@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/ProduktGeschaeftVerbindungRepository.kt
-// Stand: 2025-06-16_08:35:00, Codezeilen: 47 (getVerbindungenByProduktId hinzugefuegt)
+// Stand: 2025-06-27_12:28:00, Codezeilen: ~70 (Hinzugefuegt: isProduktGeschaeftVerbindungPrivateAndOwnedBy)
 
 package com.MaFiSoft.BuyPal.repository
 
@@ -29,35 +29,52 @@ interface ProduktGeschaeftVerbindungRepository {
     fun getVerbindungById(produktId: String, geschaeftId: String): Flow<ProduktGeschaeftVerbindungEntitaet?>
 
     /**
-     * Ruft die IDs aller Geschaefte ab, die mit einem bestimmten Produkt verbunden sind.
+     * Ruft alle Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Produkt ab.
      * @param produktId Die ID des Produkts.
-     * @return Ein Flow, das eine Liste von Geschaefts-IDs emittiert.
+     * @return Ein Flow, das eine Liste von Verbindungen emittiert.
+     */
+    fun getVerbindungenByProduktId(produktId: String): Flow<List<ProduktGeschaeftVerbindungEntitaet>>
+
+    /**
+     * NEU: Ruft eine Liste von Geschaeft-IDs ab, die mit einem bestimmten Produkt verknuepft sind.
+     * Dies ist hilfreich, um die Liste der bereits verknuepften Geschaefte in der UI anzuzeigen.
+     * @param produktId Die ID des Produkts.
+     * @return Ein Flow, das eine Liste von Geschaeft-IDs emittiert.
      */
     fun getGeschaeftIdsFuerProdukt(produktId: String): Flow<List<String>>
 
     /**
-     * Ruft die IDs aller Produkte ab, die mit einem bestimmten Geschaeft verbunden sind.
+     * Ruft alle Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Geschaeft ab.
      * @param geschaeftId Die ID des Geschaefts.
-     * @return Ein Flow, das eine Liste von Produkt-IDs emittiert.
+     * @return Ein Flow, das eine Liste von Verbindungen emittiert.
      */
-    fun getProduktIdsFuerGeschaeft(geschaeftId: String): Flow<List<String>>
+    fun getVerbindungenByGeschaeftId(geschaeftId: String): Flow<List<ProduktGeschaeftVerbindungEntitaet>>
 
     /**
-     * Ruft ALLE Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Produkt ab,
-     * unabhaengig von ihren Synchronisations-Flags. Dies wird fuer die Kaskadierung benoetigt.
-     * @param produktId Die ID des Produkts, fuer das die Verbindungen abgerufen werden sollen.
+     * NEU: Synchrone Methode zum Abrufen aller Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Geschaeft.
+     * Wird fuer referentielle Integritaetspruefungen benoetigt.
+     * @param geschaeftId Die ID des Geschaefts.
+     * @return Eine Liste von Verbindungen.
+     */
+    suspend fun getVerbindungenByGeschaeftIdSynchronous(geschaeftId: String): List<ProduktGeschaeftVerbindungEntitaet>
+
+    /**
+     * NEU: Synchrone Methode zum Abrufen aller Produkt-Geschaeft-Verbindungen fuer ein bestimmtes Produkt.
+     * Wird fuer referentielle Integritaetspruefungen benoetigt.
+     * @param produktId Die ID des Produkts.
+     * @return Eine Liste von Verbindungen.
+     */
+    suspend fun getVerbindungenByProduktIdSynchronous(produktId: String): List<ProduktGeschaeftVerbindungEntitaet>
+
+
+    /**
+     * Ruft alle aktiven Produkt-Geschaeft-Verbindungen (nicht zur Loeschung vorgemerkt) ab.
      * @return Ein Flow, das eine Liste von ProduktGeschaeftVerbindungEntitaet emittiert.
-     */
-    fun getVerbindungenByProduktId(produktId: String): Flow<List<ProduktGeschaeftVerbindungEntitaet>> // NEU
-
-    /**
-     * Ruft alle Produkt-Geschaeft-Verbindungen ab, die nicht zur Loeschung vorgemerkt sind.
-     * @return Ein Flow, das eine Liste aller nicht vorgemerkten Verbindungen emittiert.
      */
     fun getAllVerbindungen(): Flow<List<ProduktGeschaeftVerbindungEntitaet>>
 
     /**
-     * Markiert eine Produkt-Geschaeft-Verbindung zur Loeschung (Soft Delete).
+     * Merkt eine Produkt-Geschaeft-Verbindung zur Loeschung (Soft Delete).
      * Setzt das 'istLoeschungVorgemerkt'-Flag und markiert die Verbindung fuer die Synchronisation.
      * @param produktId Die ID des Produkts der zu loeschenden Verbindung.
      * @param geschaeftId Die ID des Geschaefts der zu loeschenden Verbindung.
@@ -80,8 +97,29 @@ interface ProduktGeschaeftVerbindungRepository {
     suspend fun markiereAlleVerbindungenFuerProduktZurLoeschung(produktId: String)
 
     /**
-     * Synchronisiert die Produkt-Geschaeft-Verbindungsdaten zwischen der lokalen Room-Datenbank
-     * und Firestore. Behandelt Erstellungen, Aktualisierungen und Loeschungen.
+     * Synchronisiert die Produkt-Geschaeft-Verbindungsdaten zwischen der lokalen
+     * Room-Datenbank und Firestore.
+     * Implementiert eine Room-first-Strategie mit delayed sync.
      */
-    suspend fun syncVerbindungDaten()
+    suspend fun syncProduktGeschaeftVerbindungDaten()
+
+    /**
+     * NEU: Migriert alle anonymen Produkt-Geschaeft-Verbindungen (erstellerId = null) zum angegebenen Benutzer.
+     * Die Primärschlüssel der Verbindungen bleiben dabei unverändert.
+     * @param neuerBenutzerId Die ID des Benutzers, dem die anonymen Verbindungen zugeordnet werden sollen.
+     */
+    suspend fun migriereAnonymeProduktGeschaeftVerbindungen(neuerBenutzerId: String)
+
+    /**
+     * NEU: Prueft, ob eine Produkt-Geschaeft-Verbindung eine private Verbindung des aktuellen Benutzers ist.
+     * Eine Verbindung ist privat, wenn sie in einem Produkt enthalten ist, das in einem Artikel enthalten ist,
+     * der in einer Einkaufsliste mit 'gruppeId = null' enthalten ist UND
+     * die 'erstellerId' dieser Einkaufsliste der 'aktuellerBenutzerId' entspricht.
+     *
+     * @param produktId Die ID des Produkts der zu pruefenden Verbindung.
+     * @param geschaeftId Die ID des Geschaefts der zu pruefenden Verbindung.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn die Verbindung in einer privaten Einkaufsliste des Benutzers ist, sonst False.
+     */
+    suspend fun isProduktGeschaeftVerbindungPrivateAndOwnedBy(produktId: String, geschaeftId: String, aktuellerBenutzerId: String): Boolean
 }

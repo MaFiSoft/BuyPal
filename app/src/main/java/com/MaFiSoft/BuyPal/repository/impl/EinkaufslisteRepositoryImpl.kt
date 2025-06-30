@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/EinkaufslisteRepositoryImpl.kt
-// Stand: 2025-06-17_23:00:00, Codezeilen: ~295 (Fix: Private Listen werden nicht mehr geloescht)
+// Stand: 2025-06-27_12:32:00, Codezeilen: ~550 (Pull-Sync-Logik fuer private Listen korrigiert)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
@@ -8,285 +8,394 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.MaFiSoft.BuyPal.data.EinkaufslisteDao
 import com.MaFiSoft.BuyPal.data.EinkaufslisteEntitaet
-import com.MaFiSoft.BuyPal.data.GruppeDao
+import com.MaFiSoft.BuyPal.data.GruppeEntitaet
 import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
+import com.MaFiSoft.BuyPal.repository.BenutzerRepository
+import com.MaFiSoft.BuyPal.repository.GruppeRepository
+import com.MaFiSoft.BuyPal.repository.ArtikelRepository
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.util.Date
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Implementierung des Einkaufsliste-Repository.
  * Verwaltet Einkaufslistendaten lokal (Room) und in der Cloud (Firestore) nach dem Room-first-Ansatz.
- * Dieser Code implementiert den neuen "Goldstandard" fuer Push-Pull-Synchronisation.
- * Die ID-Generierung erfolgt NICHT in dieser Methode, sondern muss vor dem Aufruf des Speicherns erfolgen.
+ * Dieser Code implementiert den neuen "Goldstandard" der Synchronisationslogik.
+ * Synchronisiert nur Einkaufslisten, die mit einer Gruppe verknuepft sind, in der der Benutzer Mitglied ist.
  */
 @Singleton
 class EinkaufslisteRepositoryImpl @Inject constructor(
     private val einkaufslisteDao: EinkaufslisteDao,
-    private val gruppeDao: GruppeDao,
     private val firestore: FirebaseFirestore,
-    private val context: Context
+    private val benutzerRepositoryProvider: Provider<BenutzerRepository>, // Geaendert zu Provider
+    private val gruppeRepositoryProvider: Provider<GruppeRepository>, // Geaendert zu Provider
+    private val artikelRepositoryProvider: Provider<ArtikelRepository>,
+    private val context: Context,
+    private val appId: String
 ) : EinkaufslisteRepository {
 
-    private val ioScope = CoroutineScope(Dispatchers.IO)
-    private val firestoreCollection = firestore.collection("einkaufslisten")
-    private val TAG = "DEBUG_REPO"
+    private val TAG = "EinkaufslisteRepoImpl"
 
-    init {
-        ioScope.launch {
-            Timber.d("$TAG: Initialer Sync: Starte Pull-Synchronisation der Einkaufslistendaten (aus Init-Block).")
-            performPullSync()
-            Timber.d("$TAG: Initialer Sync: Pull-Synchronisation der Einkaufslistendaten abgeschlossen (aus Init-Block).")
-        }
+    private fun getFirestoreCollectionPath(): String {
+        return "artifacts/${appId}/public/data/einkaufslisten"
     }
 
-    // --- Lokale Datenbank-Operationen (Room) ---
-
+    /**
+     * Speichert eine Einkaufsliste in der lokalen Room-Datenbank und markiert sie fuer die Synchronisation.
+     * Wenn die Einkaufsliste bereits existiert, wird sie aktualisiert.
+     * Implementiert Kaskadierung fuer Produkt und Einkaufsliste.
+     *
+     * @param einkaufsliste Die zu speichernde oder zu aktualisierende Einkaufsliste.
+     */
     override suspend fun einkaufslisteSpeichern(einkaufsliste: EinkaufslisteEntitaet) {
-        Timber.d("$TAG: Versuche Einkaufsliste lokal zu speichern/aktualisieren: ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId})")
-
-        val existingEinkaufsliste = einkaufslisteDao.getEinkaufslisteById(einkaufsliste.einkaufslisteId).firstOrNull()
-        Timber.d("$TAG: einkaufslisteSpeichern: Bestehende Einkaufsliste im DAO gefunden: ${existingEinkaufsliste != null}. Erstellungszeitpunkt (existing): ${existingEinkaufsliste?.erstellungszeitpunkt}, ZuletztGeaendert (existing): ${existingEinkaufsliste?.zuletztGeaendert}")
-
-        val einkaufslisteToSave = einkaufsliste.copy(
-            erstellungszeitpunkt = existingEinkaufsliste?.erstellungszeitpunkt,
+        Timber.d("$TAG: einkaufslisteSpeichern: Versuche Einkaufsliste zu speichern: ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId})")
+        val einkaufslisteMitFlags = einkaufsliste.copy(
             zuletztGeaendert = Date(),
             istLokalGeaendert = true,
             istLoeschungVorgemerkt = false
         )
-        einkaufslisteDao.einkaufslisteEinfuegen(einkaufslisteToSave)
-        Timber.d("$TAG: Einkaufsliste ${einkaufslisteToSave.name} (ID: ${einkaufslisteToSave.einkaufslisteId}) lokal gespeichert/aktualisiert. istLokalGeaendert: ${einkaufslisteToSave.istLokalGeaendert}, Erstellungszeitpunkt: ${einkaufslisteToSave.erstellungszeitpunkt}")
+        einkaufslisteDao.einkaufslisteEinfuegen(einkaufslisteMitFlags)
+        Timber.d("$TAG: einkaufslisteSpeichern: Einkaufsliste ${einkaufslisteMitFlags.name} lokal gespeichert.")
 
-        val retrievedEinkaufsliste = einkaufslisteDao.getEinkaufslisteById(einkaufslisteToSave.einkaufslisteId).firstOrNull()
-        if (retrievedEinkaufsliste != null) {
-            Timber.d("$TAG: VERIFIZIERUNG: Einkaufsliste nach Speichern erfolgreich aus DB abgerufen. EinkaufslisteID: '${retrievedEinkaufsliste.einkaufslisteId}', Erstellungszeitpunkt: ${retrievedEinkaufsliste.erstellungszeitpunkt}, ZuletztGeaendert: ${retrievedEinkaufsliste.zuletztGeaendert}, istLokalGeaendert: ${retrievedEinkaufsliste.istLokalGeaendert}, GruppeID: ${retrievedEinkaufsliste.gruppeId}")
-        } else {
-            Timber.e("$TAG: VERIFIZIERUNG FEHLGESCHLAGEN: Einkaufsliste konnte nach Speichern NICHT aus DB abgerufen werden! EinkaufslisteID: '${einkaufslisteToSave.einkaufslisteId}'")
+        // Trigger Sync nur, wenn die Einkaufsliste einer Gruppe zugeordnet ist
+        if (einkaufslisteMitFlags.gruppeId != null) {
+            triggerAbhaengigeEntitaetenSync(einkaufslisteMitFlags.einkaufslisteId)
         }
+        Timber.d("$TAG: einkaufslisteSpeichern: Trigger fuer abhaengige Entitaeten fuer Einkaufsliste ${einkaufslisteMitFlags.name} abgeschlossen.")
     }
 
+    /**
+     * Aktualisiert eine bestehende Einkaufsliste in der lokalen Room-Datenbank.
+     * Markiert die Einkaufsliste fuer die Synchronisation.
+     *
+     * @param einkaufsliste Die zu aktualisierende Einkaufsliste.
+     */
     override suspend fun einkaufslisteAktualisieren(einkaufsliste: EinkaufslisteEntitaet) {
-        Timber.d("$TAG: einkaufslisteAktualisieren wird aufgerufen, leitet weiter an einkaufslisteSpeichern. EinkaufslisteID: ${einkaufsliste.einkaufslisteId}")
-        einkaufslisteSpeichern(einkaufsliste)
-    }
-
-    override suspend fun markEinkaufslisteForDeletion(einkaufsliste: EinkaufslisteEntitaet) {
-        Timber.d("$TAG: Markiere Einkaufsliste zur Löschung: ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId})")
-        val einkaufslisteLoeschenVorgemerkt = einkaufsliste.copy(
-            istLoeschungVorgemerkt = true,
+        Timber.d("$TAG: einkaufslisteAktualisieren: Versuche Einkaufsliste zu aktualisieren: ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId})")
+        val aktualisierteEinkaufsliste = einkaufsliste.copy(
             zuletztGeaendert = Date(),
             istLokalGeaendert = true
         )
-        einkaufslisteDao.einkaufslisteAktualisieren(einkaufslisteLoeschenVorgemerkt)
-        Timber.d("$TAG: Einkaufsliste ${einkaufslisteLoeschenVorgemerkt.name} (ID: ${einkaufslisteLoeschenVorgemerkt.einkaufslisteId}) lokal zur Löschung vorgemerkt. istLoeschungVorgemerkt: ${einkaufslisteLoeschenVorgemerkt.istLoeschungVorgemerkt}")
-    }
+        einkaufslisteDao.einkaufslisteAktualisieren(aktualisierteEinkaufsliste)
+        Timber.d("$TAG: einkaufslisteAktualisieren: Einkaufsliste ${aktualisierteEinkaufsliste.name} lokal aktualisiert.")
 
-    override suspend fun loescheEinkaufsliste(einkaufslisteId: String) {
-        Timber.d("$TAG: Einkaufsliste endgültig löschen (lokal): $einkaufslisteId")
-        try {
-            einkaufslisteDao.deleteEinkaufslisteById(einkaufslisteId)
-            Timber.d("$TAG: Einkaufsliste $einkaufslisteId erfolgreich lokal gelöscht.")
-        } catch (e: Exception) {
-            Timber.e(e, "$TAG: Fehler beim endgültigen Löschen von Einkaufsliste $einkaufslisteId.")
+        // Trigger Sync nur, wenn die Einkaufsliste einer Gruppe zugeordnet ist
+        if (aktualisierteEinkaufsliste.gruppeId != null) {
+            triggerAbhaengigeEntitaetenSync(aktualisierteEinkaufsliste.einkaufslisteId)
         }
+        Timber.d("$TAG: einkaufslisteAktualisieren: Trigger fuer abhaengige Entitaeten fuer Einkaufsliste ${aktualisierteEinkaufsliste.name} abgeschlossen.")
     }
 
+
+    /**
+     * Markiert eine Einkaufsliste in der lokalen Datenbank zur Loeschung (Soft Delete).
+     * Setzt das "istLoeschungVorgemerkt"-Flag und markiert die Einkaufsliste fuer die Synchronisation.
+     * Die tatsaechliche Loeschung in der Cloud und der lokalen Datenbank erfolgt erst nach der Synchronisation.
+     *
+     * @param einkaufsliste Die Einkaufsliste, die zur Loeschung vorgemerkt werden soll.
+     */
+    override suspend fun markEinkaufslisteForDeletion(einkaufsliste: EinkaufslisteEntitaet) {
+        Timber.d("$TAG: markEinkaufslisteForDeletion: Einkaufsliste '${einkaufsliste.name}' (ID: ${einkaufsliste.einkaufslisteId}) zur Loeschung vorgemerkt.")
+        val einkaufslisteZurLoeschung = einkaufsliste.copy(
+            istLoeschungVorgemerkt = true,
+            istLokalGeaendert = true,
+            zuletztGeaendert = Date()
+        )
+        einkaufslisteDao.einkaufslisteAktualisieren(einkaufslisteZurLoeschung)
+        Timber.d("$TAG: markEinkaufslisteForDeletion: Einkaufsliste ${einkaufslisteZurLoeschung.name} lokal zum Loeschen vorgemerkt.")
+    }
+
+    /**
+     * Loescht eine Einkaufsliste endgueltig aus der lokalen Datenbank.
+     * Diese Methode wird typischerweise nur nach erfolgreicher Synchronisation der Loeschung
+     * mit der Cloud-Datenbank aufgerufen oder fuer private Listen.
+     *
+     * @param einkaufslisteId Die ID der endgueltig zu loeschenden Einkaufsliste.
+     */
+    override suspend fun loescheEinkaufsliste(einkaufslisteId: String) {
+        Timber.d("$TAG: loescheEinkaufsliste: Loesche Einkaufsliste endgueltig mit ID: $einkaufslisteId")
+        einkaufslisteDao.deleteEinkaufslisteById(einkaufslisteId)
+        Timber.d("$TAG: loescheEinkaufsliste: Einkaufsliste mit ID $einkaufslisteId endgueltig geloescht.")
+    }
+
+    /**
+     * Ruft eine einzelne Einkaufsliste anhand ihrer eindeutigen ID aus der lokalen Datenbank ab.
+     * Liefert einen Flow zur Echtzeitbeobachtung von Aenderungen.
+     *
+     * @param einkaufslisteId Die ID der abzurufenden Einkaufsliste.
+     * @return Ein Flow, der die Einkaufsliste-Entitaet (oder null) emittiert.
+     */
     override fun getEinkaufslisteById(einkaufslisteId: String): Flow<EinkaufslisteEntitaet?> {
-        Timber.d("$TAG: Abrufen Einkaufsliste nach ID: $einkaufslisteId")
+        Timber.d("$TAG: getEinkaufslisteById: Abrufen von Einkaufsliste mit ID: $einkaufslisteId")
         return einkaufslisteDao.getEinkaufslisteById(einkaufslisteId)
     }
 
+    /**
+     * Ruft alle nicht zur Loeschung vorgemerkten privaten Einkaufslisten aus der lokalen Datenbank ab.
+     * (Einkaufslisten mit gruppeId = null).
+     * Liefert einen Flow zur Echtzeitbeobachtung von Aenderungen in der Liste.
+     *
+     * @return Ein Flow, der eine Liste von Einkaufsliste-Entitaeten emittiert.
+     */
     override fun getAllEinkaufslisten(): Flow<List<EinkaufslisteEntitaet>> {
-        Timber.d("$TAG: Abrufen aller aktiven Einkaufslisten.")
+        Timber.d("$TAG: getAllEinkaufslisten: Abrufen aller aktiven privaten Einkaufslisten.")
         return einkaufslisteDao.getAllEinkaufslisten()
     }
 
-    override fun getEinkaufslistenFuerGruppe(gruppeId: String): Flow<List<EinkaufslisteEntitaet>> {
-        Timber.d("$TAG: Abrufen aller aktiven Einkaufslisten fuer Gruppe: $gruppeId")
-        return einkaufslisteDao.getEinkaufslistenFuerGruppe(gruppeId)
+    /**
+     * Holt alle aktiven Einkaufslisten fuer eine spezifische Gruppe (nicht zur Loeschung vorgemerkt).
+     *
+     * @param gruppeId Die ID der Gruppe.
+     * @return Ein Flow, der eine Liste von Einkaufsliste-Entitaeten emittiert.
+     */
+    override fun getEinkaufslistenByGruppeId(gruppeId: String): Flow<List<EinkaufslisteEntitaet>> {
+        Timber.d("$TAG: getEinkaufslistenByGruppeId: Abrufen von Einkaufslisten fuer Gruppe ID: $gruppeId")
+        return einkaufslisteDao.getEinkaufslistenByGruppeId(gruppeId)
     }
 
-    // --- Synchronisations-Operationen (Room <-> Firestore) ---
+    /**
+     * NEU: Synchrone Methode zum Abrufen aller Einkaufslisten fuer eine spezifische Gruppe.
+     * Wird fuer kaskadierende Relevanzpruefungen benoetigt.
+     *
+     * @param gruppeId Die ID der Gruppe.
+     * @return Eine Liste von Einkaufsliste-Entitaeten.
+     */
+    override suspend fun getEinkaufslistenByGruppeIdSynchronous(gruppeId: String): List<EinkaufslisteEntitaet> {
+        Timber.d("$TAG: getEinkaufslistenByGruppeIdSynchronous: Abrufen synchroner Einkaufslisten fuer Gruppe ID: $gruppeId")
+        // KORRIGIERT: Aufruf der neu hinzugefuegten DAO-Methode
+        return einkaufslisteDao.getEinkaufslistenByGruppeIdSynchronous(gruppeId)
+    }
 
+    /**
+     * NEU: Bestimmt, ob eine Einkaufsliste mit einer der relevanten Gruppen des Benutzers verknuepft ist.
+     * Dies ist ein direkter Check: Einkaufsliste -> Gruppe.
+     *
+     * @param einkaufslisteId Die ID der zu pruefenden Einkaufsliste.
+     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
+     * @return True, wenn die Einkaufsliste mit einer relevanten Gruppe verknuepft ist, sonst False.
+     */
+    override suspend fun isEinkaufslisteLinkedToRelevantGroup(einkaufslisteId: String, meineGruppenIds: List<String>): Boolean {
+        val einkaufsliste = einkaufslisteDao.getEinkaufslisteByIdSynchronous(einkaufslisteId) // Synchrone Abfrage
+        return einkaufsliste?.gruppeId != null && meineGruppenIds.contains(einkaufsliste.gruppeId)
+    }
+
+    /**
+     * NEU: Prueft, ob eine Einkaufsliste eine private Einkaufsliste des aktuellen Benutzers ist.
+     * Eine Einkaufsliste ist privat, wenn ihre 'gruppeId' null ist UND ihre 'erstellerId'
+     * der 'aktuellerBenutzerId' entspricht.
+     *
+     * @param einkaufslisteId Die ID der zu pruefenden Einkaufsliste.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn die Einkaufsliste privat ist und dem aktuellen Benutzer gehoert, sonst False.
+     */
+    override suspend fun isEinkaufslistePrivateAndOwnedBy(einkaufslisteId: String, aktuellerBenutzerId: String): Boolean {
+        val einkaufsliste = einkaufslisteDao.getEinkaufslisteByIdSynchronous(einkaufslisteId)
+        return einkaufsliste?.gruppeId == null && einkaufsliste?.erstellerId == aktuellerBenutzerId
+    }
+
+    /**
+     * NEU: Migriert alle anonymen Einkaufslisten (erstellerId = null) zum angegebenen Benutzer.
+     * Die Primärschlüssel der Einkaufslisten bleiben dabei unverändert.
+     * @param neuerBenutzerId Die ID des Benutzers, dem die anonymen Einkaufslisten zugeordnet werden sollen.
+     */
+    override suspend fun migriereAnonymeEinkaufslisten(neuerBenutzerId: String) {
+        Timber.d("$TAG: Starte Migration anonymer Einkaufslisten zu Benutzer-ID: $neuerBenutzerId")
+        try {
+            val anonymeEinkaufslisten = einkaufslisteDao.getAnonymeEinkaufslisten()
+            Timber.d("$TAG: ${anonymeEinkaufslisten.size} anonyme Einkaufslisten zur Migration gefunden.")
+
+            anonymeEinkaufslisten.forEach { einkaufsliste ->
+                val aktualisierteEinkaufsliste = einkaufsliste.copy(
+                    erstellerId = neuerBenutzerId, // erstellerId setzen
+                    zuletztGeaendert = Date(), // Zeitstempel aktualisieren
+                    istLokalGeaendert = true // Fuer naechsten Sync markieren
+                )
+                einkaufslisteDao.einkaufslisteEinfuegen(aktualisierteEinkaufsliste) // Verwendet REPLACE, um den bestehenden Datensatz zu aktualisieren
+                Timber.d("$TAG: Einkaufsliste '${einkaufsliste.name}' (ID: ${einkaufsliste.einkaufslisteId}) von erstellerId=NULL zu $neuerBenutzerId migriert.")
+            }
+            Timber.d("$TAG: Migration anonymer Einkaufslisten abgeschlossen.")
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: FEHLER bei der Migration anonymer Einkaufslisten: ${e.message}")
+        }
+    }
+
+    /**
+     * Synchronisiert Einkaufslistendaten zwischen Room und Firestore.
+     * Implementiert eine Room-first-Strategie mit Konfliktloesung (Last-Write-Wins).
+     * Synchronisiert nur Einkaufslisten, die mit einer Gruppe verknuepft sind,
+     * in der der Benutzer Mitglied ist.
+     */
     override suspend fun syncEinkaufslistenDaten() {
-        Timber.d("$TAG: Starte manuelle Synchronisation der Einkaufslistendaten.")
-
         if (!isOnline()) {
-            Timber.d("$TAG: Keine Internetverbindung fuer Synchronisation verfuegbar.")
+            Timber.d("$TAG: Sync: Keine Internetverbindung, Synchronisation uebersprungen.")
             return
         }
 
-        val unsynchronisierteEinkaufslisten = einkaufslisteDao.getUnsynchronisierteEinkaufslisten()
-        for (einkaufsliste in unsynchronisierteEinkaufslisten) {
-            try {
-                if (!einkaufsliste.istLoeschungVorgemerkt) {
-                    // NEUE LOGIK: Nur öffentliche Einkaufslisten (mit gruppeId) nach Firestore pushen
-                    if (einkaufsliste.gruppeId != null) {
-                        // PRUEFUNG: Existiert die Gruppe fuer diese Oeffentliche Einkaufsliste lokal?
-                        val existingGruppe = gruppeDao.getGruppeById(einkaufsliste.gruppeId!!).firstOrNull()
-                        if (existingGruppe == null) {
-                            Timber.e("$TAG: Sync: Einkaufsliste ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId}) kann NICHT zu Firestore hochgeladen werden. Referenzierte Gruppe-ID '${einkaufsliste.gruppeId}' existiert lokal NICHT. Setze istLokalGeaendert auf false.")
-                            einkaufslisteDao.einkaufslisteEinfuegen(einkaufsliste.copy(istLokalGeaendert = false))
-                            continue
-                        }
+        Timber.d("$TAG: Starte Einkaufslisten-Synchronisation...")
 
-                        val einkaufslisteFuerFirestore = einkaufsliste.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
-                        Timber.d("$TAG: Sync: Push Upload/Update fuer Oeffentliche Einkaufsliste: ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId})")
-                        firestoreCollection.document(einkaufsliste.einkaufslisteId).set(einkaufslisteFuerFirestore).await()
-                        einkaufslisteDao.einkaufslisteEinfuegen(einkaufsliste.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
-                        Timber.d("$TAG: Sync: Oeffentliche Einkaufsliste ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId}) erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
-                    } else {
-                        // Diese Einkaufsliste ist privat und lokal geändert, aber soll NICHT zu Firestore hochgeladen werden.
-                        // Setze istLokalGeaendert auf false, damit sie nicht wiederholt versucht wird.
-                        Timber.d("$TAG: Sync: Private Einkaufsliste '${einkaufsliste.name}' (ID: ${einkaufsliste.einkaufslisteId}) ist lokal geändert, aber privat. Sie wird NICHT zu Firestore hochgeladen. Setze istLokalGeaendert auf false.")
-                        einkaufslisteDao.einkaufslisteEinfuegen(einkaufsliste.copy(istLokalGeaendert = false))
-                    }
-                }
-            } catch (e: Exception) {
-                Timber.e(e, "$TAG: Sync: Fehler beim Hochladen von Einkaufsliste ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId}) zu Firestore: ${e.message}")
-            }
+        val aktuellerBenutzer = benutzerRepositoryProvider.get().getAktuellerBenutzer().firstOrNull()
+        val aktuellerBenutzerId = aktuellerBenutzer?.benutzerId ?: run {
+            Timber.w("$TAG: Kein angemeldeter Benutzer fuer Sync gefunden. Synchronisation abgebrochen.")
+            return
         }
 
-        val einkaufslistenFuerLoeschung = einkaufslisteDao.getEinkaufslistenFuerLoeschung()
-        for (einkaufsliste in einkaufslistenFuerLoeschung) {
-            try {
-                Timber.d("$TAG: Sync: Push Löschung fuer Einkaufsliste: ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId})")
-                firestoreCollection.document(einkaufsliste.einkaufslisteId).delete().await()
-                einkaufslisteDao.deleteEinkaufslisteById(einkaufsliste.einkaufslisteId)
-                Timber.d("$TAG: Sync: Einkaufsliste ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId}) erfolgreich aus Firestore und lokal gelöscht.")
-            } catch (e: Exception) {
-                Timber.e(e, "$TAG: Sync: Fehler beim Löschen von Einkaufsliste ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId}) aus Firestore: ${e.message}")
-            }
+        val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
+            .firstOrNull()
+            ?.map { it.gruppeId }
+            ?: emptyList()
+
+        Timber.d("$TAG: Relevante Gruppe-IDs fuer Einkaufsliste-Sync: $meineGruppenIds")
+
+        // Hilfsfunktion zur Bestimmung der Relevanz einer Einkaufsliste für den Push/Pull
+        val isEinkaufslisteRelevantForSync: suspend (EinkaufslisteEntitaet) -> Boolean = { einkaufsliste ->
+            this.isEinkaufslisteLinkedToRelevantGroup(einkaufsliste.einkaufslisteId, meineGruppenIds) ||
+                    this.isEinkaufslistePrivateAndOwnedBy(einkaufsliste.einkaufslisteId, aktuellerBenutzerId) // NEU: Auch private, eigene Listen sind relevant
         }
 
-        Timber.d("$TAG: Sync: Starte Pull-Phase der Synchronisation fuer Einkaufslistendaten.")
-        performPullSync()
-        Timber.d("$TAG: Sync: Synchronisation der Einkaufslistendaten abgeschlossen.")
-    }
-
-    // Ausgelagerte Funktion fuer den Pull-Sync-Teil mit detaillierterem Logging (Goldstandard-Logik)
-    private suspend fun performPullSync() {
-        Timber.d("$TAG: performPullSync aufgerufen.")
+        // --- PUSH: Lokale Aenderungen zu Firestore ---
         try {
-            val firestoreSnapshot = firestoreCollection.get().await()
-            val firestoreEinkaufslisteList = firestoreSnapshot.toObjects(EinkaufslisteEntitaet::class.java)
-            Timber.d("$TAG: Sync Pull: ${firestoreEinkaufslisteList.size} Einkaufslisten von Firestore abgerufen.")
-            firestoreEinkaufslisteList.forEach { fel ->
-                Timber.d("$TAG: Sync Pull (Firestore-Deserialisierung): EinkaufslisteID: '${fel.einkaufslisteId}', Erstellungszeitpunkt: ${fel.erstellungszeitpunkt}, ZuletztGeaendert: ${fel.zuletztGeaendert}, GruppeID: ${fel.gruppeId}")
-            }
+            // Hole alle unsynchronisierten Listen (unabhaengig von gruppeId, da private Listen auch unsynchronisiert sein koennen)
+            val unsynchronisierteEinkaufslisten = einkaufslisteDao.getUnsynchronisierteEinkaufslisten()
+            Timber.d("$TAG: Sync Push: ${unsynchronisierteEinkaufslisten.size} unsynchronisierte Einkaufslisten gefunden.")
 
-            val allLocalEinkaufslisten = einkaufslisteDao.getAllEinkaufslistenIncludingMarkedForDeletion()
-            val localEinkaufslisteMap = allLocalEinkaufslisten.associateBy { it.einkaufslisteId }
-            Timber.d("$TAG: Sync Pull: ${allLocalEinkaufslisten.size} Einkaufslisten lokal gefunden (inkl. geloeschter/geaenderter).")
+            for (lokaleEinkaufsliste in unsynchronisierteEinkaufslisten) {
+                val istRelevantFuerSync = isEinkaufslisteRelevantForSync(lokaleEinkaufsliste)
 
-            for (firestoreEinkaufsliste in firestoreEinkaufslisteList) {
-                val lokaleEinkaufsliste = localEinkaufslisteMap[firestoreEinkaufsliste.einkaufslisteId]
-                Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Einkaufsliste: ${firestoreEinkaufsliste.name} (ID: ${firestoreEinkaufsliste.einkaufslisteId}), GruppeID: ${firestoreEinkaufsliste.gruppeId}")
-
-                // NEUE LOGIK: Nur öffentliche Listen von Firestore in Room importieren
-                if (firestoreEinkaufsliste.gruppeId != null) {
-                    val existingGruppe = gruppeDao.getGruppeById(firestoreEinkaufsliste.gruppeId!!).firstOrNull()
-                    if (existingGruppe == null) {
-                        Timber.e("$TAG: Sync Pull: Einkaufsliste ${firestoreEinkaufsliste.name} (ID: ${firestoreEinkaufsliste.einkaufslisteId}) kann NICHT von Firestore in Room geladen werden. Referenzierte Gruppe-ID '${firestoreEinkaufsliste.gruppeId}' existiert lokal NICHT.")
-                        continue
-                    }
-                } else {
-                    // Ignoriere private Listen aus Firestore im Pull-Sync.
-                    // Diese sollten ohnehin nicht in Firestore sein. Wenn sie da sind, ignorieren.
-                    Timber.d("$TAG: Sync Pull: Ignoriere private Einkaufsliste '${firestoreEinkaufsliste.name}' (ID: ${firestoreEinkaufsliste.einkaufslisteId}) von Firestore. Sollte nicht in Firestore sein.")
-                    continue
-                }
-
-                if (lokaleEinkaufsliste == null) {
-                    val newEinkaufslisteInRoom = firestoreEinkaufsliste.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
-                    einkaufslisteDao.einkaufslisteEinfuegen(newEinkaufslisteInRoom)
-                    Timber.d("$TAG: Sync Pull: NEUE Einkaufsliste ${newEinkaufslisteInRoom.name} (ID: ${newEinkaufslisteInRoom.einkaufslisteId}) von Firestore in Room HINZUGEFÜGT. Erstellungszeitpunkt in Room: ${newEinkaufslisteInRoom.erstellungszeitpunkt}.")
-
-                    val verifiedNewEinkaufsliste = einkaufslisteDao.getEinkaufslisteById(newEinkaufslisteInRoom.einkaufslisteId).firstOrNull()
-                    if (verifiedNewEinkaufsliste != null) {
-                        Timber.d("$TAG: VERIFIZIERUNG NACH PULL-ADD: EinkaufslisteID: '${verifiedNewEinkaufsliste.einkaufslisteId}', Erstellungszeitpunkt: ${verifiedNewEinkaufsliste.erstellungszeitpunkt}, ZuletztGeaendert: ${verifiedNewEinkaufsliste.zuletztGeaendert}, istLokalGeaendert: ${verifiedNewEinkaufsliste.istLokalGeaendert}, GruppeID: ${verifiedNewEinkaufsliste.gruppeId}")
+                if (lokaleEinkaufsliste.istLoeschungVorgemerkt) {
+                    if (istRelevantFuerSync) {
+                        try {
+                            firestore.collection(getFirestoreCollectionPath()).document(lokaleEinkaufsliste.einkaufslisteId).delete().await()
+                            Timber.d("$TAG: Sync Push: Einkaufsliste '${lokaleEinkaufsliste.name}' (ID: ${lokaleEinkaufsliste.einkaufslisteId}) aus Firestore GELÖSCHT (relevant fuer Sync).")
+                        } catch (e: Exception) {
+                            Timber.e(e, "$TAG: Sync Push: FEHLER beim Loeschen von Einkaufsliste '${lokaleEinkaufsliste.einkaufslisteId}' aus Firestore: ${e.message}")
+                        } finally {
+                            einkaufslisteDao.deleteEinkaufslisteById(lokaleEinkaufsliste.einkaufslisteId)
+                            Timber.d("$TAG: Sync Push: Einkaufsliste '${lokaleEinkaufsliste.name}' (ID: ${lokaleEinkaufsliste.einkaufslisteId}) lokal endgueltig geloescht.")
+                        }
                     } else {
-                        Timber.e("$TAG: VERIFIZIERUNG NACH PULL-ADD FEHLGESCHLAGEN: Einkaufsliste konnte nach Pull-Add NICHT aus DB abgerufen werden! EinkaufslisteID: '${newEinkaufslisteInRoom.einkaufslisteId}'")
+                        Timber.d("$TAG: Sync Push: Einkaufsliste '${lokaleEinkaufsliste.name}' (ID: ${lokaleEinkaufsliste.einkaufslisteId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Kein Firestore-Vorgang. Setze istLokalGeaendert zurueck.")
+                        einkaufslisteDao.einkaufslisteAktualisieren(lokaleEinkaufsliste.copy(istLokalGeaendert = false))
                     }
+                } else { // Einkaufsliste ist nicht zur Loeschung vorgemerkt
+                    if (istRelevantFuerSync) {
+                        val einkaufslisteRef = firestore.collection(getFirestoreCollectionPath()).document(lokaleEinkaufsliste.einkaufslisteId)
+                        val firestoreEinkaufsliste = einkaufslisteRef.get().await().toObject(EinkaufslisteEntitaet::class.java)
 
-                } else {
-                    Timber.d("$TAG: Sync Pull: Lokale Einkaufsliste ${lokaleEinkaufsliste.name} (ID: ${lokaleEinkaufsliste.einkaufslisteId}) gefunden. Lokal geändert: ${lokaleEinkaufsliste.istLokalGeaendert}, Zur Loeschung vorgemerkt: ${lokaleEinkaufsliste.istLoeschungVorgemerkt}, GruppeID: ${lokaleEinkaufsliste.gruppeId}.")
+                        val firestoreTimestamp = firestoreEinkaufsliste?.zuletztGeaendert ?: firestoreEinkaufsliste?.erstellungszeitpunkt
+                        val localTimestamp = lokaleEinkaufsliste.zuletztGeaendert ?: lokaleEinkaufsliste.erstellungszeitpunkt
 
-                    if (lokaleEinkaufsliste.istLoeschungVorgemerkt) {
-                        Timber.d("$TAG: Sync Pull: Lokale Einkaufsliste ${lokaleEinkaufsliste.name} ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert.")
-                        continue
-                    }
-                    if (lokaleEinkaufsliste.istLokalGeaendert) {
-                        Timber.d("$TAG: Sync Pull: Lokale Einkaufsliste ${lokaleEinkaufsliste.name} ist lokal geändert. Pull-Version von Firestore wird ignoriert.")
-                        continue
-                    }
-
-                    if (firestoreEinkaufsliste.istLoeschungVorgemerkt) {
-                        einkaufslisteDao.deleteEinkaufslisteById(lokaleEinkaufsliste.einkaufslisteId)
-                        Timber.d("$TAG: Sync Pull: Einkaufsliste ${lokaleEinkaufsliste.name} lokal GELÖSCHT, da in Firestore als gelöscht markiert und lokale Version nicht verändert.")
-                        continue
-                    }
-
-                    val shouldUpdateErstellungszeitpunkt =
-                        lokaleEinkaufsliste.erstellungszeitpunkt == null && firestoreEinkaufsliste.erstellungszeitpunkt != null
-                    if (shouldUpdateErstellungszeitpunkt) {
-                        Timber.d("$TAG: Sync Pull: Erstellungszeitpunkt von NULL auf Firestore-Wert aktualisiert fuer EinkaufslisteID: '${lokaleEinkaufsliste.einkaufslisteId}'.")
-                    }
-
-                    val firestoreTimestamp = firestoreEinkaufsliste.zuletztGeaendert ?: firestoreEinkaufsliste.erstellungszeitpunkt
-                    val localTimestamp = lokaleEinkaufsliste.zuletztGeaendert ?: lokaleEinkaufsliste.erstellungszeitpunkt
-
-                    val isFirestoreNewer = when {
-                        firestoreTimestamp == null && localTimestamp == null -> false
-                        firestoreTimestamp != null && localTimestamp == null -> true
-                        firestoreTimestamp == null && localTimestamp != null -> false
-                        firestoreTimestamp != null && localTimestamp != null -> firestoreTimestamp.after(localTimestamp)
-                        else -> false
-                    }
-
-                    if (isFirestoreNewer || shouldUpdateErstellungszeitpunkt) {
-                        val updatedEinkaufsliste = firestoreEinkaufsliste.copy(
-                            erstellungszeitpunkt = firestoreEinkaufsliste.erstellungszeitpunkt,
-                            istLokalGeaendert = false,
-                            istLoeschungVorgemerkt = false
-                        )
-                        einkaufslisteDao.einkaufslisteEinfuegen(updatedEinkaufsliste)
-                        Timber.d("$TAG: Sync Pull: Einkaufsliste ${updatedEinkaufsliste.name} (ID: ${updatedEinkaufsliste.einkaufslisteId}) von Firestore in Room AKTUALISIERT (Firestore neuer ODER erstellungszeitpunkt aktualisiert). Erstellungszeitpunkt in Room: ${updatedEinkaufsliste.erstellungszeitpunkt}.")
-
-                        val verifiedUpdatedEinkaufsliste = einkaufslisteDao.getEinkaufslisteById(updatedEinkaufsliste.einkaufslisteId).firstOrNull()
-                        if (verifiedUpdatedEinkaufsliste != null) {
-                            Timber.d("$TAG: VERIFIZIERUNG NACH PULL-UPDATE: EinkaufslisteID: '${verifiedUpdatedEinkaufsliste.einkaufslisteId}', Erstellungszeitpunkt: ${verifiedUpdatedEinkaufsliste.erstellungszeitpunkt}, ZuletztGeaendert: ${verifiedUpdatedEinkaufsliste.zuletztGeaendert}, istLokalGeaendert: ${verifiedUpdatedEinkaufsliste.istLokalGeaendert}, GruppeID: ${verifiedUpdatedEinkaufsliste.gruppeId}")
-                        } else {
-                            Timber.e("$TAG: VERIFIZIERUNG NACH PULL-UPDATE FEHLGESCHLAGEN: Einkaufsliste konnte nach Pull-Update NICHT aus DB abgerufen werden! EinkaufslisteID: '${updatedEinkaufsliste.einkaufslisteId}'")
+                        val isLocalNewer = when {
+                            firestoreTimestamp == null && localTimestamp != null -> true
+                            firestoreTimestamp != null && localTimestamp == null -> false
+                            firestoreTimestamp == null && localTimestamp == null -> true
+                            else -> localTimestamp!!.after(firestoreTimestamp!!)
                         }
 
+                        if (firestoreEinkaufsliste == null || isLocalNewer) {
+                            try {
+                                einkaufslisteRef.set(lokaleEinkaufsliste.copy(
+                                    istLokalGeaendert = false,
+                                    istLoeschungVorgemerkt = false
+                                )).await()
+                                einkaufslisteDao.einkaufslisteAktualisieren(lokaleEinkaufsliste.copy(istLokalGeaendert = false))
+                                Timber.d("$TAG: Sync Push: Einkaufsliste '${lokaleEinkaufsliste.name}' (ID: ${lokaleEinkaufsliste.einkaufslisteId}) zu Firestore hochgeladen/aktualisiert. Lokal geaendert Flag zurueckgesetzt.")
+                            } catch (e: Exception) {
+                                Timber.e(e, "$TAG: Sync Push: FEHLER beim Hochladen von Einkaufsliste '${lokaleEinkaufsliste.name}' (ID: ${lokaleEinkaufsliste.einkaufslisteId}) zu Firestore: ${e.message}")
+                            }
+                        } else {
+                            Timber.d("$TAG: Sync Push: Einkaufsliste '${lokaleEinkaufsliste.name}' (ID: ${lokaleEinkaufsliste.einkaufslisteId}) in Firestore neuer oder gleich. Lokale Aenderung uebersprungen, wird im Pull behandelt.")
+                        }
                     } else {
-                        Timber.d("$TAG: Sync Pull: Lokale Einkaufsliste ${lokaleEinkaufsliste.name} (ID: ${lokaleEinkaufsliste.einkaufslisteId}) ist aktueller oder gleich, oder Firestore-Version ist nicht neuer. KEINE AKTUALISIERUNG von Firestore.")
+                        Timber.d("$TAG: Sync Push: Einkaufsliste '${lokaleEinkaufsliste.name}' (ID: ${lokaleEinkaufsliste.einkaufslisteId}) ist nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Kein Push zu Firestore. Setze istLokalGeaendert zurueck.")
+                        einkaufslisteDao.einkaufslisteAktualisieren(lokaleEinkaufsliste.copy(istLokalGeaendert = false))
                     }
                 }
             }
+            Timber.d("$TAG: Sync Push: Push-Synchronisation der Einkaufslistendaten abgeschlossen.")
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: Sync Push: FEHLER beim Hochladen und Synchronisieren von Einkaufslisten zu Firestore: ${e.message}")
+        }
 
-            val firestoreEinkaufslisteIds = firestoreEinkaufslisteList.map { it.einkaufslisteId }.toSet()
+        // --- PULL: Aenderungen von Firestore herunterladen ---
+        try {
+            val firestoreEinkaufslisten = mutableListOf<EinkaufslisteEntitaet>()
 
-            for (localEinkaufsliste in allLocalEinkaufslisten) {
-                // KORRIGIERT: Zusätzliche Prüfung: Nur ÖFFENTLICHE Listen loeschen,
-                // die nicht mehr in Firestore sind und nicht lokal geaendert/vorgemerkt sind.
-                if (localEinkaufsliste.einkaufslisteId.isNotEmpty() &&
-                    !firestoreEinkaufslisteIds.contains(localEinkaufsliste.einkaufslisteId) &&
+            // 1. Pull Einkaufslisten, die zu den Gruppen des Benutzers gehoeren
+            if (meineGruppenIds.isNotEmpty()) {
+                val groupEinkaufslistenSnapshot: QuerySnapshot = firestore.collection(getFirestoreCollectionPath())
+                    .whereIn("gruppeId", meineGruppenIds)
+                    .get().await()
+                firestoreEinkaufslisten.addAll(groupEinkaufslistenSnapshot.toObjects(EinkaufslisteEntitaet::class.java))
+            }
+
+            // 2. Pull private Einkaufslisten, die vom aktuellen Benutzer erstellt wurden
+            val privateEinkaufslistenSnapshot: QuerySnapshot = firestore.collection(getFirestoreCollectionPath())
+                .whereEqualTo("erstellerId", aktuellerBenutzerId)
+                .whereEqualTo("gruppeId", null) // Explizit nach privaten Listen filtern
+                .get().await()
+            firestoreEinkaufslisten.addAll(privateEinkaufslistenSnapshot.toObjects(EinkaufslisteEntitaet::class.java))
+
+
+            val uniqueFirestoreEinkaufslisten = firestoreEinkaufslisten.distinctBy { it.einkaufslisteId }
+            val uniqueFirestoreEinkaufslistenIds = uniqueFirestoreEinkaufslisten.map { it.einkaufslisteId }.toSet()
+
+            Timber.d("$TAG: Sync Pull: ${uniqueFirestoreEinkaufslisten.size} Einkaufslisten von Firestore heruntergeladen (nach Relevanz).")
+
+            for (cloudEinkaufsliste in uniqueFirestoreEinkaufslisten) {
+                val lokaleEinkaufsliste = einkaufslisteDao.getEinkaufslisteByIdSynchronous(cloudEinkaufsliste.einkaufslisteId)
+
+                val firestoreTimestamp = cloudEinkaufsliste.zuletztGeaendert ?: cloudEinkaufsliste.erstellungszeitpunkt
+                val localTimestamp = lokaleEinkaufsliste?.zuletztGeaendert ?: lokaleEinkaufsliste?.erstellungszeitpunkt
+
+                val isFirestoreNewer = when {
+                    firestoreTimestamp == null && localTimestamp == null -> false
+                    firestoreTimestamp != null && localTimestamp == null -> true
+                    localTimestamp != null && firestoreTimestamp == null -> false
+                    else -> firestoreTimestamp!!.after(localTimestamp!!)
+                }
+
+                if (lokaleEinkaufsliste == null || (!lokaleEinkaufsliste.istLokalGeaendert && isFirestoreNewer)) {
+                    einkaufslisteDao.einkaufslisteEinfuegen(cloudEinkaufsliste.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                    Timber.d("$TAG: Sync Pull: Einkaufsliste '${cloudEinkaufsliste.name}' (ID: ${cloudEinkaufsliste.einkaufslisteId}) von Firestore heruntergeladen/aktualisiert.")
+
+                    // Nach dem Pull der Einkaufsliste, trigger Kaskadierung fuer abhaengige Entitaeten
+                    if (isEinkaufslisteRelevantForSync(cloudEinkaufsliste)) { // Trigger nur, wenn die gepullte Einkaufsliste relevant ist
+                        triggerAbhaengigeEntitaetenSync(cloudEinkaufsliste.einkaufslisteId)
+                    }
+
+                } else {
+                    Timber.d("$TAG: Sync Pull: Lokale Einkaufsliste '${cloudEinkaufsliste.name}' (ID: ${cloudEinkaufsliste.einkaufslisteId}) ist neuer, gleich oder lokal geaendert. Firestore-Aenderung uebersprungen.")
+                }
+            }
+
+            val lokaleEinkaufslistenFuerCleanUp = einkaufslisteDao.getAllEinkaufslistenIncludingMarkedForDeletion()
+            for (localEinkaufsliste in lokaleEinkaufslistenFuerCleanUp) {
+                val istRelevantFuerBenutzer = isEinkaufslisteRelevantForSync(localEinkaufsliste)
+
+                // Lokale Einkaufsliste loeschen, wenn sie nicht mehr in Firestore vorhanden ist
+                // UND nicht lokal geaendert/vorgemerkt ist
+                // UND nicht relevant fuer diesen Benutzer ist (keine Gruppenverbindung UND nicht privat/eigen)
+                if (!uniqueFirestoreEinkaufslistenIds.contains(localEinkaufsliste.einkaufslisteId) &&
                     !localEinkaufsliste.istLoeschungVorgemerkt &&
                     !localEinkaufsliste.istLokalGeaendert &&
-                    localEinkaufsliste.gruppeId != null // Hinzugefuegte Bedingung: Nur oeffentliche Listen loeschen!
+                    !istRelevantFuerBenutzer
                 ) {
                     einkaufslisteDao.deleteEinkaufslisteById(localEinkaufsliste.einkaufslisteId)
-                    Timber.d("$TAG: Sync Pull: Lokale Einkaufsliste ${localEinkaufsliste.name} (ID: ${localEinkaufsliste.einkaufslisteId}) GELÖSCHT, da nicht mehr in Firestore vorhanden und lokal NICHT zur Loeschung vorgemerkt UND NICHT lokal geändert war. (NUR ÖFFENTLICHE LISTE ENTFERNT)")
+                    Timber.d("$TAG: Sync Pull: Lokale Einkaufsliste '${localEinkaufsliste.name}' (ID: ${localEinkaufsliste.einkaufslisteId}) GELÖSCHT, da nicht mehr in Firestore vorhanden UND nicht relevant fuer diesen Benutzer UND lokal synchronisiert war.")
+                } else if (istRelevantFuerBenutzer) {
+                    Timber.d("$TAG: Sync Pull: Lokale Einkaufsliste '${localEinkaufsliste.name}' (ID: ${localEinkaufsliste.einkaufslisteId}) BLEIBT LOKAL, da sie noch fuer diesen Benutzer relevant ist (mit relevanter Gruppe verbunden ODER privat/eigen).")
+                } else {
+                    Timber.d("$TAG: Sync Pull: Lokale Einkaufsliste '${localEinkaufsliste.name}' (ID: ${localEinkaufsliste.einkaufslisteId}) BLEIBT LOKAL (Grund: ${if(localEinkaufsliste.istLokalGeaendert) "lokal geaendert" else if (localEinkaufsliste.istLoeschungVorgemerkt) "zur Loeschung vorgemerkt" else "nicht remote gefunden, aber dennoch lokal behalten, da sie nicht als nicht-relevant identifiziert wurde."}).")
                 }
             }
             Timber.d("$TAG: Sync Pull: Pull-Synchronisation der Einkaufslistendaten abgeschlossen.")
@@ -295,6 +404,43 @@ class EinkaufslisteRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Loest die Synchronisation von Artikeln und deren abhaengigen Entitaeten aus,
+     * die mit der gegebenen Einkaufsliste verknuepft sind.
+     *
+     * @param einkaufslisteId Die ID der Einkaufsliste, deren abhaengige Entitaeten synchronisiert werden sollen.
+     */
+    private suspend fun triggerAbhaengigeEntitaetenSync(einkaufslisteId: String) {
+        Timber.d("$TAG: triggerAbhaengigeEntitaetenSync fuer Einkaufsliste: $einkaufslisteId")
+        try {
+            // Hier direkt das DAO verwenden, um alle Artikel (inkl. geloeschter) zu holen,
+            // da die Repositories nur die aktiven Artikel als Flow zurueckgeben.
+            val artikelDerListe = einkaufslisteDao.getArtikelForEinkaufslisteIncludingMarkedForDeletion(einkaufslisteId)
+
+            if (artikelDerListe.isNotEmpty()) {
+                val artikelRepository = artikelRepositoryProvider.get()
+                for (artikel in artikelDerListe) {
+                    if (!artikel.istLoeschungVorgemerkt) {
+                        val artikelToSync = artikel.copy(istLokalGeaendert = true, zuletztGeaendert = Date())
+                        artikelRepository.artikelAktualisieren(artikelToSync)
+                        Timber.d("$TAG: Trigger Sync fuer Artikel '${artikel.name}' (ID: ${artikel.artikelId}).")
+                    } else {
+                        Timber.d("$TAG: Artikel '${artikel.name}' (ID: ${artikel.artikelId}) ist zur Loeschung vorgemerkt. Kein Trigger.")
+                    }
+                }
+                Timber.d("$TAG: Trigger Sync fuer ${artikelDerListe.size} Artikel abgeschlossen.")
+            } else {
+                Timber.d("$TAG: Keine Artikel fuer Einkaufsliste '$einkaufslisteId' gefunden. Kein Trigger noetig.")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: FEHLER beim Triggern abhaengiger Entitaeten fuer Einkaufsliste $einkaufslisteId: ${e.message}")
+        }
+    }
+
+
+    /**
+     * Ueberprueft die Internetverbindung.
+     */
     private fun isOnline(): Boolean {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)

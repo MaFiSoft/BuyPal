@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/KategorieRepository.kt
-// Stand: 2025-06-07_22:40:00, Codezeilen: 38
+// Stand: 2025-06-26_22:08:00, Codezeilen: ~50 (Hinzugefuegt: isKategoriePrivateAndOwnedBy)
 
 package com.MaFiSoft.BuyPal.repository
 
@@ -50,7 +50,7 @@ interface KategorieRepository {
     /**
      * Loescht eine Kategorie endgueltig aus der lokalen Datenbank.
      * Diese Methode wird typischerweise nur nach erfolgreicher Synchronisation der Loeschung
-     * mit der Cloud-Datenbank aufgerufen.
+     * mit der Cloud-Datenbank aufgerufen oder fuer private Daten.
      *
      * @param kategorieId Die ID der endgueltig zu loeschenden Kategorie.
      */
@@ -58,8 +58,27 @@ interface KategorieRepository {
 
     /**
      * Startet den Synchronisationsprozess fuer Kategoriedaten zwischen der lokalen
-     * Room-Datenbank und Firestore (Cloud-Datenbank).
-     * Diese Funktion wird vom SyncManager aufgerufen.
+     * Room-Datenbank und der Cloud-Datenbank (Firestore).
+     * Fuehrt sowohl Push- als auch Pull-Operationen durch.
      */
-    suspend fun syncKategorieDaten()
+    suspend fun syncKategorienDaten()
+
+    /**
+     * NEU: Migriert alle anonymen Kategorien (erstellerId = null) zum angegebenen Benutzer.
+     * Die Primärschlüssel der Kategorien bleiben dabei unverändert.
+     * @param neuerBenutzerId Die ID des Benutzers, dem die anonymen Kategorien zugeordnet werden sollen.
+     */
+    suspend fun migriereAnonymeKategorien(neuerBenutzerId: String)
+
+    /**
+     * NEU: Prueft, ob eine Kategorie eine private Kategorie des aktuellen Benutzers ist.
+     * Eine Kategorie ist privat, wenn sie in einem Produkt enthalten ist, das wiederum in einem Artikel enthalten ist,
+     * der in einer Einkaufsliste mit 'gruppeId = null' enthalten ist UND
+     * die 'erstellerId' dieser Einkaufsliste der 'aktuellerBenutzerId' entspricht.
+     *
+     * @param kategorieId Die ID der zu pruefenden Kategorie.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn die Kategorie in einer privaten Einkaufsliste des Benutzers ist, sonst False.
+     */
+    suspend fun isKategoriePrivateAndOwnedBy(kategorieId: String, aktuellerBenutzerId: String): Boolean
 }

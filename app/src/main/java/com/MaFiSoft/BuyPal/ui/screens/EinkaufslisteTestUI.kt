@@ -1,12 +1,15 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/EinkaufslisteTestUI.kt
-// Stand: 2025-06-17_23:27:00, Codezeilen: 279 (Fix: Inline-Fehler f. Gruppenauswahl im Dialog)
+// Stand: 2025-06-24_05:45:00, Codezeilen: ~320 (FINAL Korrektur: enabled-Parameter bei FloatingActionButton entfernt)
 
 package com.MaFiSoft.BuyPal.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
@@ -20,26 +23,34 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.MaFiSoft.BuyPal.data.EinkaufslisteEntitaet
 import com.MaFiSoft.BuyPal.data.GruppeEntitaet
 import com.MaFiSoft.BuyPal.presentation.viewmodel.EinkaufslisteViewModel
+import com.MaFiSoft.BuyPal.presentation.viewmodel.BenutzerViewModel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.util.UUID
+import java.util.Date
+
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewEinkaufslisteDialog(
     onDismiss: () -> Unit,
-    onConfirm: (name: String, sollOeffentlichSein: Boolean, gruppeId: String?) -> Unit,
-    einkaufslisteViewModel: EinkaufslisteViewModel // HiltViewModel() wird vom Eltern-Composable bereitgestellt
+    onConfirm: (name: String, sollOeffentlichSein: Boolean, gruppeId: String?, erstellerId: String) -> Unit,
+    einkaufslisteViewModel: EinkaufslisteViewModel,
+    aktuellerBenutzerId: String // Benutzer-ID uebergeben an den Dialog
 ) {
     var name by remember { mutableStateOf("") }
     var sollOeffentlichSein by remember { mutableStateOf(false) }
+    var isNameFocused by remember { mutableStateOf(false) }
 
     val allGruppen by einkaufslisteViewModel.alleGruppen.collectAsState(initial = emptyList())
     var expanded by remember { mutableStateOf(false) }
     var selectedGruppe by remember { mutableStateOf<GruppeEntitaet?>(null) }
+    var isGruppeDropdownFocused by remember { mutableStateOf(false) }
 
-    // NEU: States fuer Inline-Fehlermeldung der Gruppe
     var isGruppeError by remember { mutableStateOf(false) }
     var gruppeErrorMessage by remember { mutableStateOf("") }
 
@@ -51,8 +62,23 @@ fun NewEinkaufslisteDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name der Einkaufsliste") },
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text(if (isNameFocused || name.isNotEmpty()) "Name der Einkaufsliste" else "Name der Einkaufsliste eingeben") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { isNameFocused = it.isFocused }
+                        .border(
+                            width = if (isNameFocused) 2.dp else 1.dp,
+                            color = if (isNameFocused) MaterialTheme.colorScheme.primary else Color.LightGray,
+                            shape = RoundedCornerShape(8.dp)
+                        ),
+                    shape = RoundedCornerShape(8.dp),
+                    singleLine = true,
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        cursorColor = MaterialTheme.colorScheme.primary,
+                        containerColor = Color.White
+                    )
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
@@ -65,8 +91,8 @@ fun NewEinkaufslisteDialog(
                             sollOeffentlichSein = it
                             if (!it) {
                                 selectedGruppe = null
-                                isGruppeError = false // Fehler zuruecksetzen
-                                gruppeErrorMessage = "" // Fehlermeldung zuruecksetzen
+                                isGruppeError = false
+                                gruppeErrorMessage = ""
                             }
                         }
                     )
@@ -77,18 +103,33 @@ fun NewEinkaufslisteDialog(
                     ExposedDropdownMenuBox(
                         expanded = expanded,
                         onExpandedChange = { expanded = !expanded },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { isGruppeDropdownFocused = it.isFocused }
+                            .border(
+                                width = if (isGruppeDropdownFocused || expanded) 2.dp else 1.dp,
+                                color = if (isGruppeDropdownFocused || expanded) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .background(Color.White, RoundedCornerShape(8.dp))
                     ) {
                         OutlinedTextField(
-                            value = selectedGruppe?.name ?: "",
+                            value = selectedGruppe?.name ?: "Gruppe auswählen",
                             onValueChange = { /* read-only */ },
                             readOnly = true,
-                            label = { Text("Gruppe auswaehlen") },
+                            label = { Text(if (isGruppeDropdownFocused || selectedGruppe != null) "Gruppe auswählen" else "Gruppe auswählen") },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                             modifier = Modifier
                                 .menuAnchor()
                                 .fillMaxWidth(),
-                            isError = isGruppeError // Anzeige des Fehlerzustands
+                            isError = isGruppeError,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = TextFieldDefaults.outlinedTextFieldColors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                cursorColor = MaterialTheme.colorScheme.primary,
+                                containerColor = Color.White
+                            )
                         )
                         ExposedDropdownMenu(
                             expanded = expanded,
@@ -107,14 +148,13 @@ fun NewEinkaufslisteDialog(
                                     onClick = {
                                         selectedGruppe = gruppe
                                         expanded = false
-                                        isGruppeError = false // Fehler zuruecksetzen bei Auswahl
-                                        gruppeErrorMessage = "" // Fehlermeldung zuruecksetzen
+                                        isGruppeError = false
+                                        gruppeErrorMessage = ""
                                     }
                                 )
                             }
                         }
                     }
-                    // NEU: Anzeige der Inline-Fehlermeldung
                     if (isGruppeError) {
                         Text(
                             text = gruppeErrorMessage,
@@ -133,16 +173,13 @@ fun NewEinkaufslisteDialog(
                     if (sollOeffentlichSein && finalGruppeId.isNullOrBlank()) {
                         isGruppeError = true
                         gruppeErrorMessage = "Für öffentliche Gruppenlisten ist zwingend die Auswahl einer Gruppe nötig."
-                        // Dialog bleibt offen, um dem Benutzer die Korrektur zu ermöglichen
                     } else {
-                        onConfirm(name, sollOeffentlichSein, finalGruppeId)
-                        // Dialog wird vom aufrufenden Composable geschlossen (showNewListDialog = false)
-                        // Fehlerzustand zuruecksetzen, falls vorher gesetzt
+                        onConfirm(name, sollOeffentlichSein, finalGruppeId, aktuellerBenutzerId)
                         isGruppeError = false
                         gruppeErrorMessage = ""
                     }
                 },
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank() && aktuellerBenutzerId.isNotBlank()
             ) {
                 Text("Speichern")
             }
@@ -157,65 +194,110 @@ fun NewEinkaufslisteDialog(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EinkaufslisteCard(einkaufsliste: EinkaufslisteEntitaet, onDeleteClick: (EinkaufslisteEntitaet) -> Unit, onClick: () -> Unit) {
+fun EinkaufslisteCard(
+    einkaufsliste: EinkaufslisteEntitaet,
+    onDeleteClick: (EinkaufslisteEntitaet) -> Unit,
+    onClick: (String) -> Unit
+) {
     val isMarkedForDeletion = einkaufsliste.istLoeschungVorgemerkt
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.medium,
+            .clickable(onClick = { onClick(einkaufsliste.einkaufslisteId) })
+            .background(
+                color = Color(0xFFE3F2FD),
+                shape = RoundedCornerShape(8.dp)
+            ),
+        shape = RoundedCornerShape(8.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .padding(16.dp)
                 .fillMaxWidth(),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalAlignment = Alignment.Start
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Name: ${einkaufsliste.name}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (isMarkedForDeletion) MaterialTheme.colorScheme.error else LocalContentColor.current
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "ID: ${einkaufsliste.einkaufslisteId}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            einkaufsliste.beschreibung?.let {
                 Text(
-                    text = einkaufsliste.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isMarkedForDeletion) MaterialTheme.colorScheme.error else LocalContentColor.current
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "ID: ${einkaufsliste.einkaufslisteId}",
+                    text = "Beschreibung: $it",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                val statusText = if (einkaufsliste.gruppeId != null) "Oeffentlich" else "Privat"
-                val statusColor = if (einkaufsliste.gruppeId != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
-                Text(
-                    text = "Status: $statusText",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = statusColor
-                )
-                einkaufsliste.gruppeId?.let {
-                    Text(
-                        text = "Gruppe ID: $it",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (isMarkedForDeletion) {
-                    Text(
-                        text = "Zur Loeschung vorgemerkt!",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            Button(
-                onClick = { onDeleteClick(einkaufsliste) },
-                enabled = !isMarkedForDeletion
+            Text(
+                text = "Erstellt: ${einkaufsliste.erstellungszeitpunkt}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            einkaufsliste.zuletztGeaendert?.let {
+                Text(
+                    text = "Zuletzt geändert: $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "Ersteller ID: ${einkaufsliste.erstellerId}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // 'istOeffentlich' entfernt. Status wird ueber 'gruppeId' abgeleitet.
+            val statusText = if (einkaufsliste.gruppeId != null) "Öffentlich (Gruppe)" else "Privat"
+            val statusColor = if (einkaufsliste.gruppeId != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+            Text(
+                text = "Status: $statusText",
+                style = MaterialTheme.typography.bodySmall,
+                color = statusColor
+            )
+
+            einkaufsliste.gruppeId?.let {
+                Text(
+                    text = "Gruppe ID: $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "Lokal geändert: ${einkaufsliste.istLokalGeaendert}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            if (isMarkedForDeletion) {
+                Text(
+                    text = "Zur Loeschung vorgemerkt!",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
             ) {
-                Text("Löschen")
+                Button(
+                    onClick = {
+                        Timber.d("EinkaufslisteTestUI: Löschen-Button in Card geklickt fuer Liste: ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId}).")
+                        onDeleteClick(einkaufsliste)
+                    },
+                    enabled = !isMarkedForDeletion
+                ) {
+                    Text("Löschen")
+                }
             }
         }
     }
@@ -224,14 +306,19 @@ fun EinkaufslisteCard(einkaufsliste: EinkaufslisteEntitaet, onDeleteClick: (Eink
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EinkaufslisteTestUI(
-    einkaufslisteViewModel: EinkaufslisteViewModel = hiltViewModel()
+    einkaufslisteViewModel: EinkaufslisteViewModel = hiltViewModel(),
+    benutzerViewModel: BenutzerViewModel = hiltViewModel(),
+    onNavigateToEinkaufslisteArtikel: (String) -> Unit
 ) {
     val einkaufslisten by einkaufslisteViewModel.alleEinkaufslisten.collectAsState(initial = emptyList())
     var showNewListDialog by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Dieser LaunchedEffect ist fuer Nachrichten aus dem ViewModel (z.B. Speichererfolg, ungueltige ID)
+    // Aktueller Benutzer, der fuer erstellerId benoetigt wird
+    val aktuellerBenutzer by benutzerViewModel.aktuellerBenutzer.collectAsState(initial = null)
+    val aktuellerBenutzerId = aktuellerBenutzer?.benutzerId ?: "" // Sicherstellen, dass ID verfuegbar ist
+
     LaunchedEffect(Unit) {
         einkaufslisteViewModel.uiEvent.collectLatest { message ->
             snackbarHostState.showSnackbar(message)
@@ -245,6 +332,7 @@ fun EinkaufslisteTestUI(
                 title = { Text("Einkaufslisten Test-UI") },
                 actions = {
                     IconButton(onClick = {
+                        Timber.d("EinkaufslisteTestUI: Synchronisieren-Button geklickt.")
                         coroutineScope.launch {
                             einkaufslisteViewModel.syncEinkaufslistenDaten()
                         }
@@ -255,7 +343,22 @@ fun EinkaufslisteTestUI(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showNewListDialog = true }) {
+            FloatingActionButton(
+                onClick = {
+                    // Der FAB soll nur geklickt werden können, wenn ein Benutzer angemeldet ist.
+                    // Die Deaktivierung wird durch die onClick-Logik selbst gehandhabt,
+                    // da FloatingActionButton keinen 'enabled'-Parameter hat.
+                    if (aktuellerBenutzer != null) {
+                        showNewListDialog = true
+                    } else {
+                        // Optional: Snackbar-Hinweis, dass kein Benutzer angemeldet ist
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar("Bitte melden Sie sich an, um neue Einkaufslisten zu erstellen.")
+                        }
+                    }
+                }
+                // REMOVED: enabled = aktuellerBenutzer != null (Dieser Parameter existiert nicht!)
+            ) {
                 Icon(Icons.Filled.Add, "Neue Einkaufsliste hinzufuegen")
             }
         }
@@ -272,7 +375,9 @@ fun EinkaufslisteTestUI(
                     Text(
                         text = "Keine Einkaufslisten vorhanden. Fuege eine neue hinzu!",
                         style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.fillMaxWidth().padding(16.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
                     )
                 }
             } else {
@@ -280,13 +385,15 @@ fun EinkaufslisteTestUI(
                     EinkaufslisteCard(
                         einkaufsliste = einkaufsliste,
                         onDeleteClick = { list ->
+                            Timber.d("EinkaufslisteTestUI: onDeleteClick Lambda ausgeloest fuer Liste: ${list.name} (ID: ${list.einkaufslisteId}). Markiere zur Loeschung.")
                             coroutineScope.launch {
                                 einkaufslisteViewModel.einkaufslisteZurLoeschungVormerken(list)
-                                Timber.d("Einkaufsliste ${list.name} zur Loeschung vorgemerkt.")
+                                Timber.d("Einkaufsliste ${list.name} zur Loeschung vorgemerkt (nach ViewModel-Aufruf).")
                             }
                         },
-                        onClick = {
-                            Timber.d("Einkaufsliste geklickt: ${einkaufsliste.name} (ID: ${einkaufsliste.einkaufslisteId})")
+                        onClick = { id ->
+                            Timber.d("EinkaufslisteTestUI: Karte geklickt: ${einkaufsliste.name} (ID: $id). Navigiere zu Artikel-Detail.")
+                            onNavigateToEinkaufslisteArtikel(id)
                         }
                     )
                 }
@@ -296,11 +403,12 @@ fun EinkaufslisteTestUI(
         if (showNewListDialog) {
             NewEinkaufslisteDialog(
                 onDismiss = { showNewListDialog = false },
-                onConfirm = { name, sollOeffentlichSein, gruppeId ->
-                    einkaufslisteViewModel.createEinkaufsliste(name, sollOeffentlichSein, gruppeId)
+                onConfirm = { name, sollOeffentlichSein, gruppeId, erstellerId ->
+                    einkaufslisteViewModel.createEinkaufsliste(name, sollOeffentlichSein, gruppeId, erstellerId)
                     showNewListDialog = false
                 },
-                einkaufslisteViewModel = einkaufslisteViewModel
+                einkaufslisteViewModel = einkaufslisteViewModel,
+                aktuellerBenutzerId = aktuellerBenutzerId
             )
         }
     }
@@ -311,10 +419,31 @@ fun EinkaufslisteTestUI(
 @Composable
 fun PreviewEinkaufslisteTestUI() {
     MaterialTheme {
+        val dummyErstellerId = "dummy_preview_user_id"
         val dummyEinkaufslisten = remember {
             mutableStateListOf(
-                EinkaufslisteEntitaet(UUID.randomUUID().toString(), "Meine private Liste", "Beschreibung", null),
-                EinkaufslisteEntitaet(UUID.randomUUID().toString(), "Gruppen-Einkauf", "Beschreibung", "gruppenId123")
+                EinkaufslisteEntitaet(
+                    einkaufslisteId = UUID.randomUUID().toString(),
+                    name = "Meine private Liste",
+                    beschreibung = "Eine persoenliche Einkaufsliste",
+                    gruppeId = null,
+                    erstellerId = dummyErstellerId,
+                    erstellungszeitpunkt = Date(),
+                    zuletztGeaendert = Date(),
+                    istLokalGeaendert = false,
+                    istLoeschungVorgemerkt = false
+                ),
+                EinkaufslisteEntitaet(
+                    einkaufslisteId = UUID.randomUUID().toString(),
+                    name = "Gruppen-Einkauf (Oeffentlich)",
+                    beschreibung = "Einkaeufe fuer die Gruppe",
+                    gruppeId = "gruppenId123",
+                    erstellerId = dummyErstellerId,
+                    erstellungszeitpunkt = Date(),
+                    zuletztGeaendert = Date(),
+                    istLokalGeaendert = false,
+                    istLoeschungVorgemerkt = false
+                )
             )
         }
 
@@ -336,8 +465,8 @@ fun PreviewEinkaufslisteTestUI() {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(dummyEinkaufslisten) { einkaufsliste ->
-                    EinkaufslisteCard(einkaufsliste = einkaufsliste, onDeleteClick = {}, onClick = {
-                        println("Preview: Einkaufsliste geklickt: ${einkaufsliste.name}")
+                    EinkaufslisteCard(einkaufsliste = einkaufsliste, onDeleteClick = {}, onClick = { id ->
+                        println("Preview: Einkaufsliste geklickt: ${einkaufsliste.name} (ID: $id)")
                     })
                 }
             }

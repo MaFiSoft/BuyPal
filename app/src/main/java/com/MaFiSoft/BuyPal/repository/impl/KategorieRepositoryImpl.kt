@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/KategorieRepositoryImpl.kt
-// Stand: 2025-06-16_07:50:00, Codezeilen: 257 (Goldstandard Sync-Logik mit istOeffentlich-Flag)
+// Stand: 2025-06-27_12:22:00, Codezeilen: ~470 (Pull-Sync-Logik fuer Produkt-Kategorie-Verknuepfung korrigiert)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
@@ -8,36 +8,51 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.MaFiSoft.BuyPal.data.KategorieDao
 import com.MaFiSoft.BuyPal.data.KategorieEntitaet
+import com.MaFiSoft.BuyPal.data.ProduktEntitaet // NEU: Import fuer ProduktEntitaet
 import com.MaFiSoft.BuyPal.repository.KategorieRepository
+import com.MaFiSoft.BuyPal.repository.BenutzerRepository
+import com.MaFiSoft.BuyPal.repository.GruppeRepository
+import com.MaFiSoft.BuyPal.repository.ProduktRepository // Import fuer ProduktRepository
+import com.MaFiSoft.BuyPal.repository.ArtikelRepository // NEU: Import fuer ArtikelRepository
+import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository // NEU: Import fuer EinkaufslisteRepository
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.firstOrNull // Fuer das Abrufen eines einzelnen Elements
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import timber.log.Timber
 import java.util.Date
 import javax.inject.Inject
+import javax.inject.Provider // Import fuer Provider
 import javax.inject.Singleton
 
 /**
  * Implementierung von [KategorieRepository] fuer die Verwaltung von Kategoriedaten.
  * Implementiert die Room-first-Strategie mit Delayed Sync nach dem Goldstandard.
+ * Kategorien werden synchronisiert, wenn sie lokal geaendert werden oder wenn sie
+ * durch eine synchronisierte Einkaufsliste (in einer Gruppe) oder private Nutzung relevant sind.
  */
 @Singleton
 class KategorieRepositoryImpl @Inject constructor(
     private val kategorieDao: KategorieDao,
     private val firestore: FirebaseFirestore,
-    private val context: Context // Hinzugefuegt fuer isOnline()
+    private val context: Context,
+    private val benutzerRepositoryProvider: Provider<BenutzerRepository>, // Geaendert zu Provider
+    private val gruppeRepositoryProvider: Provider<GruppeRepository>, // Geaendert zu Provider
+    private val produktRepositoryProvider: Provider<ProduktRepository>,
+    private val artikelRepositoryProvider: Provider<ArtikelRepository>, // NEU: Provider fuer ArtikelRepository
+    private val einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository> // NEU: Provider fuer EinkaufslisteRepository
 ) : KategorieRepository {
 
     private val ioScope = CoroutineScope(Dispatchers.IO)
-    private val firestoreCollection = firestore.collection("kategorien")
-    private val TAG = "DEBUG_REPO" // Einheitlicher Tag fuer dieses Repository
+    private val firestoreCollection = firestore.collection("kategorien") // Firestore-Sammlung (Kleinbuchstaben)
+    private val TAG = "DEBUG_REPO_KATEGORIE"
 
-    // Init-Block: Stellt sicher, dass initial Kategorien aus Firestore in Room sind (Pull-Sync).
     init {
+        // Startet einen initialen Pull-Sync beim Start des Repositories
         ioScope.launch {
             Timber.d("$TAG: Initialer Sync: Starte Pull-Synchronisation der Kategoriedaten (aus Init-Block).")
             performPullSync()
@@ -49,29 +64,20 @@ class KategorieRepositoryImpl @Inject constructor(
 
     override suspend fun kategorieSpeichern(kategorie: KategorieEntitaet) {
         Timber.d("$TAG: Versuche Kategorie lokal zu speichern/aktualisieren: ${kategorie.name} (ID: ${kategorie.kategorieId})")
-
-        // Zuerst versuchen, eine bestehende Kategorie abzurufen, um erstellungszeitpunkt und istOeffentlich zu erhalten
         val existingKategorie = kategorieDao.getKategorieById(kategorie.kategorieId).firstOrNull()
-        Timber.d("$TAG: kategorieSpeichern: Bestehende Kategorie im DAO gefunden: ${existingKategorie != null}. Erstellungszeitpunkt (existing): ${existingKategorie?.erstellungszeitpunkt}, ZuletztGeaendert (existing): ${existingKategorie?.zuletztGeaendert}, IstOeffentlich (existing): ${existingKategorie?.istOeffentlich}")
 
         val kategorieToSave = kategorie.copy(
-            // erstellungszeitpunkt bleibt NULL fuer neue Eintraege, damit Firestore ihn setzt.
-            // Nur wenn eine bestehende Kategorie existiert, ihren erstellungszeitpunkt beibehalten.
-            erstellungszeitpunkt = existingKategorie?.erstellungszeitpunkt,
-            // istOeffentlich wird vom uebergebenen Kategorie uebernommen oder aus existingKategorie,
-            // die Logik zum Setzen auf TRUE kommt vom ArtikelRepositoryImpl
-            istOeffentlich = kategorie.istOeffentlich, // Wichtig: Den uebergebenen Wert beibehalten
-            zuletztGeaendert = Date(),
-            istLokalGeaendert = true, // Markieren fuer spaeteren Sync
-            istLoeschungVorgemerkt = false // Beim Speichern/Aktualisieren ist dies immer false
+            erstellungszeitpunkt = existingKategorie?.erstellungszeitpunkt ?: kategorie.erstellungszeitpunkt ?: Date(),
+            zuletztGeaendert = Date(), // Immer aktualisieren bei lokaler Aenderung
+            istLokalGeaendert = true, // Markieren fuer Sync
+            istLoeschungVorgemerkt = false // Sicherstellen, dass das Flag entfernt wird, wenn gespeichert
         )
-        kategorieDao.kategorieEinfuegen(kategorieToSave) // Nutzt OnConflictStrategy.REPLACE
-        Timber.d("$TAG: Kategorie ${kategorieToSave.name} (ID: ${kategorieToSave.kategorieId}) lokal gespeichert/aktualisiert. istLokalGeaendert: ${kategorieToSave.istLokalGeaendert}, Erstellungszeitpunkt: ${kategorieToSave.erstellungszeitpunkt}, IstOeffentlich: ${kategorieToSave.istOeffentlich}")
+        kategorieDao.kategorieEinfuegen(kategorieToSave)
+        Timber.d("$TAG: Kategorie ${kategorieToSave.name} (ID: ${kategorieToSave.kategorieId}) lokal gespeichert/aktualisiert. istLokalGeaendert: ${kategorieToSave.istLokalGeaendert}, Erstellungszeitpunkt: ${kategorieToSave.erstellungszeitpunkt}")
 
-        // ZUSAETZLICHER LOG: Verifikation nach dem Speichern
         val retrievedKategorie = kategorieDao.getKategorieById(kategorieToSave.kategorieId).firstOrNull()
         if (retrievedKategorie != null) {
-            Timber.d("$TAG: VERIFIZIERUNG: Kategorie nach Speichern erfolgreich aus DB abgerufen. KategorieID: '${retrievedKategorie.kategorieId}', Erstellungszeitpunkt: ${retrievedKategorie.erstellungszeitpunkt}, ZuletztGeaendert: ${retrievedKategorie.zuletztGeaendert}, istLokalGeaendert: ${retrievedKategorie.istLokalGeaendert}, IstOeffentlich: ${retrievedKategorie.istOeffentlich}")
+            Timber.d("$TAG: VERIFIZIERUNG: Kategorie nach Speichern erfolgreich aus DB abgerufen. KategorieID: '${retrievedKategorie.kategorieId}', Erstellungszeitpunkt: ${retrievedKategorie.erstellungszeitpunkt}, ZuletztGeaendert: ${retrievedKategorie.zuletztGeaendert}, istLokalGeaendert: ${retrievedKategorie.istLokalGeaendert}")
         } else {
             Timber.e("$TAG: VERIFIZIERUNG FEHLGESCHLAGEN: Kategorie konnte nach Speichern NICHT aus DB abgerufen werden! KategorieID: '${kategorieToSave.kategorieId}'")
         }
@@ -83,7 +89,7 @@ class KategorieRepositoryImpl @Inject constructor(
     }
 
     override fun getAllKategorien(): Flow<List<KategorieEntitaet>> {
-        Timber.d("$TAG: Abrufen aller aktiven Kategorien.")
+        Timber.d("$TAG: Abrufen aller aktiven Kategorien (nicht zur Loeschung vorgemerkt).")
         return kategorieDao.getAllKategorien()
     }
 
@@ -91,198 +97,356 @@ class KategorieRepositoryImpl @Inject constructor(
         Timber.d("$TAG: Markiere Kategorie zur Loeschung: ${kategorie.name} (ID: ${kategorie.kategorieId})")
         val kategorieLoeschenVorgemerkt = kategorie.copy(
             istLoeschungVorgemerkt = true,
-            zuletztGeaendert = Date(),
-            istLokalGeaendert = true // Auch eine Loeschung ist eine lokale Aenderung, die gesynct werden muss
+            zuletztGeaendert = Date(), // Aktualisiere den Zeitstempel, um Aenderung zu signalisieren
+            istLokalGeaendert = true // Markiere als lokal geaendert, damit sie gepusht wird
         )
         kategorieDao.kategorieAktualisieren(kategorieLoeschenVorgemerkt)
-        Timber.d("$TAG: Kategorie ${kategorieLoeschenVorgemerkt.name} (ID: ${kategorieLoeschenVorgemerkt.kategorieId}) lokal zur Loeschung vorgemerkt. istLoeschungVorgemerkt: ${kategorieLoeschenVorgemerkt.istLoeschungVorgemerkt}")
+        Timber.d("$TAG: Kategorie ${kategorieLoeschenVorgemerkt.name} (ID: ${kategorieLoeschenVorgemerkt.kategorieId}) lokal zur Loeschung vorgemerkt. istLoeschungVorgemerkt: ${kategorieLoeschenVorgemerkt.istLoeschungVorgemerkt}, istLokalGeaendert: ${kategorieLoeschenVorgemerkt.istLokalGeaendert}")
     }
 
     override suspend fun loescheKategorie(kategorieId: String) {
         Timber.d("$TAG: Kategorie endgueltig loeschen (lokal): $kategorieId")
         try {
-            // Hinweis: Das endgueltige Loeschen aus Firestore sollte primaer durch den Sync-Prozess erfolgen,
-            // nachdem die Kategorie zur Loeschung vorgemerkt und hochgeladen wurde.
-            // Direkte Loeschung hier nur, wenn es kein Problem darstellt.
-            // In dieser Implementierung wird der Sync-Manager dies handhaben.
             kategorieDao.deleteKategorieById(kategorieId)
-            Timber.d("$TAG: Kategorie $kategorieId erfolgreich lokal geloescht.")
+            Timber.d("$TAG: Kategorie $kategorieId erfolgreich lokal endgueltig geloescht.")
         } catch (e: Exception) {
-            Timber.e(e, "$TAG: Fehler beim endgueltigen Loeschen von Kategorie $kategorieId.")
+            Timber.e(e, "$TAG: Fehler beim endgueltigen Loeschen von Kategorie $kategorieId lokal. ${e.message}")
         }
+    }
+
+    /**
+     * NEU: Migriert alle anonymen Kategorien (erstellerId = null) zum angegebenen Benutzer.
+     * Die Primärschlüssel der Kategorien bleiben dabei unverändert.
+     * @param neuerBenutzerId Die ID des Benutzers, dem die anonymen Kategorien zugeordnet werden sollen.
+     */
+    override suspend fun migriereAnonymeKategorien(neuerBenutzerId: String) {
+        Timber.d("$TAG: Starte Migration anonymer Kategorien zu Benutzer-ID: $neuerBenutzerId")
+        try {
+            val anonymeKategorien = kategorieDao.getAnonymeKategorien()
+            Timber.d("$TAG: ${anonymeKategorien.size} anonyme Kategorien zur Migration gefunden.")
+
+            anonymeKategorien.forEach { kategorie ->
+                val aktualisierteKategorie = kategorie.copy(
+                    erstellerId = neuerBenutzerId, // erstellerId setzen
+                    zuletztGeaendert = Date(), // Zeitstempel aktualisieren
+                    istLokalGeaendert = true // Fuer naechsten Sync markieren
+                )
+                kategorieDao.kategorieEinfuegen(aktualisierteKategorie) // Verwendet REPLACE, um den bestehenden Datensatz zu aktualisieren
+                Timber.d("$TAG: Kategorie '${kategorie.name}' (ID: ${kategorie.kategorieId}) von erstellerId=NULL zu $neuerBenutzerId migriert.")
+            }
+            Timber.d("$TAG: Migration anonymer Kategorien abgeschlossen.")
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: FEHLER bei der Migration anonymer Kategorien: ${e.message}")
+        }
+    }
+
+    /**
+     * NEU: Prueft, ob eine Kategorie eine private Kategorie des aktuellen Benutzers ist.
+     * Eine Kategorie ist privat, wenn sie in einem Produkt enthalten ist, das wiederum in einem Artikel enthalten ist,
+     * der in einer Einkaufsliste mit 'gruppeId = null' enthalten ist UND
+     * die 'erstellerId' dieser Einkaufsliste der 'aktuellerBenutzerId' entspricht.
+     *
+     * @param kategorieId Die ID der zu pruefenden Kategorie.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn die Kategorie in einer privaten Einkaufsliste des Benutzers ist, sonst False.
+     */
+    override suspend fun isKategoriePrivateAndOwnedBy(kategorieId: String, aktuellerBenutzerId: String): Boolean {
+        val produktRepo = produktRepositoryProvider.get()
+        val artikelRepo = artikelRepositoryProvider.get()
+        val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
+
+        val produkteDieKategorieNutzen = produktRepo.getProdukteByKategorieSynchronous(kategorieId) // Annahme: Synchrone Methode im ProduktRepo
+        for (produkt in produkteDieKategorieNutzen) {
+            val artikelDieProduktNutzen = artikelRepo.getArtikelByProduktIdSynchronous(produkt.produktId)
+            for (artikel in artikelDieProduktNutzen) {
+                artikel.einkaufslisteId?.let { einkaufslisteId ->
+                    if (einkaufslisteRepo.isEinkaufslistePrivateAndOwnedBy(einkaufslisteId, aktuellerBenutzerId)) {
+                        Timber.d("$TAG: Kategorie '$kategorieId' ist privat und gehoert Benutzer '$aktuellerBenutzerId' ueber Produkt '${produkt.produktId}' -> Artikel '${artikel.artikelId}' -> Einkaufsliste '$einkaufslisteId'.")
+                        return true
+                    }
+                }
+            }
+        }
+        return false
     }
 
     // --- Synchronisations-Operationen (Room <-> Firestore) ---
 
-    override suspend fun syncKategorieDaten() {
+    override suspend fun syncKategorienDaten() {
         Timber.d("$TAG: Starte manuelle Synchronisation der Kategoriedaten.")
 
-        if (!isOnline()) { // Ueberpruefung der Internetverbindung hinzugefuegt
+        if (!isOnline()) {
             Timber.d("$TAG: Keine Internetverbindung fuer Synchronisation verfuegbar.")
             return
         }
 
-        // 1. Lokale Loeschungen zu Firestore pushen (DAO filtert bereits nach istOeffentlich = 1)
+        val aktuellerBenutzer = benutzerRepositoryProvider.get().getAktuellerBenutzer().firstOrNull()
+        val aktuellerBenutzerId = aktuellerBenutzer?.benutzerId
+
+        if (aktuellerBenutzerId == null) {
+            Timber.w("$TAG: Sync: Aktueller Benutzer nicht gefunden. Kategorien-Synchronisation wird uebersprungen.")
+            return
+        }
+
+        // Hilfsfunktion zur Bestimmung der Relevanz einer Kategorie für den Push/Pull
+        val isKategorieRelevantForSync: suspend (KategorieEntitaet) -> Boolean = { kategorie ->
+            // Eine Kategorie ist relevant, wenn sie vom aktuellen Benutzer erstellt wurde ODER
+            // wenn sie in einem Produkt verwendet wird, das mit einer relevanten Gruppe verknuepft ist ODER
+            // wenn sie in einem Produkt verwendet wird, das in einer privaten Einkaufsliste des Benutzers ist.
+            kategorie.erstellerId == aktuellerBenutzerId ||
+                    produktRepositoryProvider.get().isProduktLinkedToRelevantGroupViaKategorie(kategorie.kategorieId, gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId).firstOrNull()?.map { it.gruppeId } ?: emptyList()) || // Annahme: Neue Methode im ProduktRepo
+                    isKategoriePrivateAndOwnedBy(kategorie.kategorieId, aktuellerBenutzerId)
+        }
+
+        // 1. PUSH-Phase: Lokale Aenderungen zu Firestore hochladen
+        Timber.d("$TAG: Sync Push: Starte Push-Phase fuer Kategorien.")
+
+        // 1a. Lokale Loeschungen zu Firestore pushen
         val kategorienFuerLoeschung = kategorieDao.getKategorienFuerLoeschung()
+        Timber.d("$TAG: Sync Push: ${kategorienFuerLoeschung.size} Kategorien zur Loeschung vorgemerkt lokal gefunden.")
         for (kategorie in kategorienFuerLoeschung) {
-            try {
-                Timber.d("$TAG: Sync: Push Loeschung fuer Kategorie: ${kategorie.name} (ID: ${kategorie.kategorieId})")
-                firestoreCollection.document(kategorie.kategorieId).delete().await()
-                kategorieDao.deleteKategorieById(kategorie.kategorieId)
-                Timber.d("$TAG: Sync: Kategorie ${kategorie.name} (ID: ${kategorie.kategorieId}) erfolgreich aus Firestore und lokal geloescht.")
-            } catch (e: Exception) {
-                Timber.e(e, "$TAG: Sync: Fehler beim Loeschen von Kategorie ${kategorie.name} (ID: ${kategorie.kategorieId}) aus Firestore.")
-                // Fehlerbehandlung: Kategorie bleibt zur Loeschung vorgemerkt, wird spaeter erneut versucht
-            }
-        }
+            val firestoreDocId = kategorie.kategorieId
+            val istRelevantFuerSync = isKategorieRelevantForSync(kategorie)
 
-        // 2. Lokale Hinzufuegungen/Aenderungen zu Firestore pushen (DAO filtert bereits nach istOeffentlich = 1)
-        val unsynchronisierteKategorien = kategorieDao.getUnsynchronisierteKategorien()
-        for (kategorie in unsynchronisierteKategorien) {
-            try {
-                if (!kategorie.istLoeschungVorgemerkt) { // Nur speichern/aktualisieren, wenn nicht fuer Loeschung vorgemerkt
-                    // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false FUER FIRESTORE, da der Datensatz jetzt synchronisiert wird
-                    // istOeffentlich bleibt so, wie es ist (sollte 1 sein, da DAO bereits gefiltert hat)
-                    val kategorieFuerFirestore = kategorie.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
-                    Timber.d("$TAG: Sync: Push Upload/Update fuer Kategorie: ${kategorie.name} (ID: ${kategorie.kategorieId}), IstOeffentlich: ${kategorie.istOeffentlich}")
-                    firestoreCollection.document(kategorie.kategorieId).set(kategorieFuerFirestore).await()
-                    // Nach erfolgreichem Upload lokale Flags zuruecksetzen
-                    kategorieDao.kategorieEinfuegen(kategorie.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)) // Verwende einfuegen fuer Upsert
-                    Timber.d("$TAG: Sync: Kategorie ${kategorie.name} (ID: ${kategorie.kategorieId}) erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
+            if (istRelevantFuerSync) {
+                try {
+                    Timber.d("$TAG: Sync Push: Versuch Loeschung der Kategorie von Firestore: ${kategorie.name} (ID: ${firestoreDocId}).")
+                    firestoreCollection.document(firestoreDocId).delete().await()
+                    Timber.d("$TAG: Sync Push: Kategorie von Firestore geloescht.")
+                } catch (e: Exception) {
+                    Timber.e(e, "$TAG: Sync Push: FEHLER beim Loeschen von Kategorie ${firestoreDocId} aus Firestore: ${e.message}. Faehre mit lokaler Loeschung fort.")
+                } finally {
+                    kategorieDao.deleteKategorieById(kategorie.kategorieId)
+                    Timber.d("$TAG: Sync Push: Lokale Kategorie (ID: '${kategorie.kategorieId}') nach Firestore-Loeschung (oder Versuch) endgueltig entfernt.")
                 }
-            } catch (e: Exception) {
-                Timber.e(e, "$TAG: Sync: Fehler beim Hochladen von Kategorie ${kategorie.name} (ID: ${kategorie.kategorieId}) zu Firestore.")
-                // Fehlerbehandlung: Kategorie bleibt als lokal geaendert markiert, wird spaeter erneut versucht
+            } else {
+                Timber.d("$TAG: Sync Push: Kategorie ${kategorie.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Lokales Flag 'istLokalGeaendert' zuruecksetzen.")
+                kategorieDao.kategorieAktualisieren(kategorie.copy(istLokalGeaendert = false))
             }
         }
 
-        // 3. Firestore-Daten herunterladen und lokale Datenbank aktualisieren (Last-Write-Wins)
-        Timber.d("$TAG: Sync: Starte Pull-Phase der Synchronisation fuer Kategoriedaten.")
-        performPullSync() // Ausgelagert in separate Funktion
-        Timber.d("$TAG: Sync: Synchronisation der Kategoriedaten abgeschlossen.")
+        // 1b. Lokale Hinzufuegungen/Aenderungen zu Firestore pushen
+        val unsynchronisierteKategorien = kategorieDao.getUnsynchronisierteKategorien()
+        Timber.d("$TAG: Sync Push: ${unsynchronisierteKategorien.size} unsynchronisierte Kategorien lokal gefunden.")
+        for (kategorie in unsynchronisierteKategorien) {
+            val firestoreDocId = kategorie.kategorieId
+            val istRelevantFuerSync = isKategorieRelevantForSync(kategorie)
+
+            if (!kategorie.istLoeschungVorgemerkt) { // Nur hochladen, wenn nicht zur Loeschung vorgemerkt
+                if (istRelevantFuerSync) {
+                    val kategorieFuerFirestore = kategorie.copy(
+                        istLokalGeaendert = false, // Setzen auf false fuer Firestore-Objekt
+                        istLoeschungVorgemerkt = false // Setzen auf false fuer Firestore-Objekt
+                    )
+                    try {
+                        Timber.d("$TAG: Sync Push: Lade Kategorie zu Firestore hoch/aktualisiere: ${kategorie.name} (ID: ${firestoreDocId}).")
+                        firestoreCollection.document(firestoreDocId).set(kategorieFuerFirestore).await()
+                        // Lokal den Status der Flags aktualisieren, da Upload erfolgreich war
+                        kategorieDao.kategorieAktualisieren(kategorie.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                        Timber.d("$TAG: Sync Push: Kategorie erfolgreich mit Firestore synchronisiert (Upload). Lokale istLokalGeaendert: false.")
+                    } catch (e: Exception) {
+                        Timber.e(e, "$TAG: Sync Push: FEHLER beim Hochladen von Kategorie ${kategorie.name} (ID: ${firestoreDocId}) zu Firestore: ${e.message}.")
+                    }
+                } else {
+                    Timber.d("$TAG: Sync Push: Kategorie ${kategorie.name} (ID: ${firestoreDocId}) ist lokal geaendert, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Kein Upload zu Firestore. Setze istLokalGeaendert zurueck.")
+                    kategorieDao.kategorieAktualisieren(kategorie.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                }
+            } else {
+                Timber.d("$TAG: Sync Push: Kategorie ${kategorie.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt. Kein Upload zu Firestore, wird separat gehandhabt.")
+                // Wenn lokal geaendert (zur Loeschung vorgemerkt), aber nicht vom aktuellen Benutzer erstellt,
+                // dann setzen wir istLokalGeaendert zurueck, da sie nicht gepusht wird.
+                // Dies sollte nur passieren, wenn isKategorieRelevantForSync false ist.
+                if (!istRelevantFuerSync) {
+                    kategorieDao.kategorieAktualisieren(kategorie.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = true))
+                }
+            }
+        }
+
+        // 2. PULL-Phase: Firestore-Daten herunterladen und lokale Datenbank aktualisieren
+        Timber.d("$TAG: Sync Pull: Starte Pull-Phase der Synchronisation fuer Kategoriedaten.")
+        performPullSync()
+        Timber.d("$TAG: Sync Pull: Synchronisation der Kategoriedaten abgeschlossen.")
     }
 
-    // Ausgelagerte Funktion fuer den Pull-Sync-Teil mit detaillierterem Logging (Goldstandard-Logik)
+    /**
+     * Fuehrt den Pull-Synchronisationsprozess fuer Kategorien aus.
+     * Zieht Kategorien von Firestore herunter, die von den Erstellern der Gruppen erstellt wurden,
+     * in denen der aktuelle Benutzer Mitglied ist, sowie Kategorien, die der Benutzer selbst erstellt hat.
+     * Oder Kategorien, die in privaten Produkten/Artikeln/Einkaufslisten des Benutzers verwendet werden.
+     */
     private suspend fun performPullSync() {
         Timber.d("$TAG: performPullSync aufgerufen.")
         try {
-            val firestoreSnapshot = firestoreCollection.get().await()
-            val firestoreKategorieList = firestoreSnapshot.toObjects(KategorieEntitaet::class.java)
-            Timber.d("$TAG: Sync Pull: ${firestoreKategorieList.size} Kategorien von Firestore abgerufen.")
-            // ZUSAETZLICHER LOG: Erstellungszeitpunkt direkt nach Firestore-Deserialisierung pruefen
-            firestoreKategorieList.forEach { fk ->
-                Timber.d("$TAG: Sync Pull (Firestore-Deserialisierung): KategorieID: '${fk.kategorieId}', Erstellungszeitpunkt: ${fk.erstellungszeitpunkt}, ZuletztGeaendert: ${fk.zuletztGeaendert}, IstOeffentlich: ${fk.istOeffentlich}")
+            val aktuellerBenutzer = benutzerRepositoryProvider.get().getAktuellerBenutzer().firstOrNull()
+            val aktuellerBenutzerId = aktuellerBenutzer?.benutzerId
+
+            if (aktuellerBenutzerId == null) {
+                Timber.w("$TAG: performPullSync: Aktueller Benutzer nicht gefunden. Kategorien-Pull wird uebersprungen.")
+                return
             }
+
+            val produktRepo = produktRepositoryProvider.get()
+            val artikelRepo = artikelRepositoryProvider.get()
+            val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
+
+            // Schritt 1: Sammle alle relevanten Produkt-IDs basierend auf Gruppenverknuepfung ODER privater Nutzung
+            val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
+                .firstOrNull()
+                ?.map { it.gruppeId }
+                ?: emptyList()
+
+            val relevantEinkaufslistenIds = mutableSetOf<String>()
+            val relevantArtikelIds = mutableSetOf<String>()
+            val relevantProduktIds = mutableSetOf<String>()
+
+            // 1.1 Finde alle Einkaufslisten, die zu meinen Gruppen gehoeren
+            for (gruppeId in meineGruppenIds) {
+                val einkaufslistenInGruppe = einkaufslisteRepo.getEinkaufslistenByGruppeIdSynchronous(gruppeId)
+                relevantEinkaufslistenIds.addAll(einkaufslistenInGruppe.map { it.einkaufslisteId })
+            }
+
+            // 1.2 Finde alle privaten Einkaufslisten des aktuellen Benutzers
+            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslisten().firstOrNull() ?: emptyList()
+            privateEinkaufslisten.filter { it.erstellerId == aktuellerBenutzerId && it.gruppeId == null }
+                .map { it.einkaufslisteId }
+                .let { relevantEinkaufslistenIds.addAll(it) }
+
+            // 1.3 Finde alle Artikel, die zu diesen relevanten Einkaufslisten gehoeren
+            for (einkaufslisteId in relevantEinkaufslistenIds) {
+                val artikelInEinkaufsliste = artikelRepo.getArtikelByEinkaufslisteIdSynchronous(einkaufslisteId)
+                artikelInEinkaufsliste.forEach { artikel ->
+                    artikel.produktId?.let { relevantProduktIds.add(it) }
+                }
+            }
+
+            Timber.d("$TAG: Sync Pull: Relevante Produkt-IDs fuer Kategorie-Pull (inkl. privater): $relevantProduktIds")
+
+
+            // Schritt 2: Lade Kategorien von Firestore herunter, die diese relevanten Produkte referenzieren
+            // ODER die vom aktuellen Benutzer erstellt wurden
+            val firestoreKategorieList = mutableListOf<KategorieEntitaet>()
+
+            // A. Kategorien, die vom aktuellen Benutzer erstellt wurden
+            val userOwnedCategoriesSnapshot: QuerySnapshot = firestoreCollection
+                .whereEqualTo("erstellerId", aktuellerBenutzerId)
+                .get().await()
+            firestoreKategorieList.addAll(userOwnedCategoriesSnapshot.toObjects(KategorieEntitaet::class.java))
+
+            // B. Kategorien, die mit relevanten Produkten verknuepft sind
+            // Hier muss zuerst die Kategorie-ID aus den relevanten Produkten extrahiert werden,
+            // bevor die Kategorien-Collection abgefragt wird.
+            val relevantKategorieIdsFromProducts = mutableSetOf<String>()
+            val chunkedRelevantProduktIdsForKategorieLookup = relevantProduktIds.chunked(10)
+
+            for (chunk in chunkedRelevantProduktIdsForKategorieLookup) {
+                if (chunk.isNotEmpty()) {
+                    // Produkte von Firestore abrufen, die diesen relevanten Produkt-IDs entsprechen
+                    val productSnapshots: QuerySnapshot = firestore.collection("produkte")
+                        .whereIn("produktId", chunk.toList())
+                        .get().await()
+
+                    productSnapshots.toObjects(ProduktEntitaet::class.java).forEach { produkt ->
+                        produkt.kategorieId?.let { relevantKategorieIdsFromProducts.add(it) }
+                    }
+                }
+            }
+
+            // Jetzt die Kategorien von Firestore abrufen, die diese gesammelten Kategorie-IDs haben
+            val chunkedRelevantKategorieIds = relevantKategorieIdsFromProducts.chunked(10)
+            for (chunk in chunkedRelevantKategorieIds) {
+                if (chunk.isNotEmpty()) {
+                    val chunkSnapshot: QuerySnapshot = firestoreCollection // Dies ist die "kategorien"-Collection
+                        .whereIn("kategorieId", chunk.toList()) // Dies ist jetzt korrekt
+                        .get().await()
+                    firestoreKategorieList.addAll(chunkSnapshot.toObjects(KategorieEntitaet::class.java))
+                }
+            }
+
+            val uniqueFirestoreKategorien = firestoreKategorieList.distinctBy { it.kategorieId }
+            Timber.d("$TAG: Sync Pull: ${uniqueFirestoreKategorien.size} Kategorien von Firestore abgerufen (nach umfassender Relevanzpruefung).")
 
             val allLocalKategorien = kategorieDao.getAllKategorienIncludingMarkedForDeletion()
             val localKategorieMap = allLocalKategorien.associateBy { it.kategorieId }
             Timber.d("$TAG: Sync Pull: ${allLocalKategorien.size} Kategorien lokal gefunden (inkl. geloeschter/geaenderter).")
 
-            for (firestoreKategorie in firestoreKategorieList) {
+
+            for (firestoreKategorie in uniqueFirestoreKategorien) {
                 val lokaleKategorie = localKategorieMap[firestoreKategorie.kategorieId]
-                Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Kategorie: ${firestoreKategorie.name} (ID: ${firestoreKategorie.kategorieId}), IstOeffentlich: ${firestoreKategorie.istOeffentlich}")
+                Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Kategorie: ${firestoreKategorie.name} (ID: ${firestoreKategorie.kategorieId}), Ersteller: ${firestoreKategorie.erstellerId}")
+
+                val isKategorieRelevantForPull = firestoreKategorie.erstellerId == aktuellerBenutzerId ||
+                        produktRepo.isProduktLinkedToRelevantGroupViaKategorie(firestoreKategorie.kategorieId, meineGruppenIds) ||
+                        isKategoriePrivateAndOwnedBy(firestoreKategorie.kategorieId, aktuellerBenutzerId)
 
                 if (lokaleKategorie == null) {
-                    // Kategorie existiert nur in Firestore, lokal einfuegen
-                    // Setze istLokalGeaendert und istLoeschungVorgemerkt auf false, da es von Firestore kommt und synchronisiert ist
-                    // NEU: istOeffentlich wird auf TRUE gesetzt, da es von Firestore kommt
-                    val newKategorieInRoom = firestoreKategorie.copy(
-                        istLokalGeaendert = false,
-                        istLoeschungVorgemerkt = false,
-                        istOeffentlich = true // Von Firestore kommt nur oeffentliches Material
-                    )
-                    kategorieDao.kategorieEinfuegen(newKategorieInRoom)
-                    Timber.d("$TAG: Sync Pull: NEUE Kategorie ${newKategorieInRoom.name} (ID: ${newKategorieInRoom.kategorieId}) von Firestore in Room HINZUGEFUEGT. Erstellungszeitpunkt in Room: ${newKategorieInRoom.erstellungszeitpunkt}, IstOeffentlich: ${newKategorieInRoom.istOeffentlich}.")
-
-                    // *** NEUER VERIFIZIERUNGS-LOG fuer HINZUGEFUEGTE Kategorien ***
-                    val verifiedNewKategorie = kategorieDao.getKategorieById(newKategorieInRoom.kategorieId).firstOrNull()
-                    if (verifiedNewKategorie != null) {
-                        Timber.d("$TAG: VERIFIZIERUNG NACH PULL-ADD: KategorieID: '${verifiedNewKategorie.kategorieId}', Erstellungszeitpunkt: ${verifiedNewKategorie.erstellungszeitpunkt}, ZuletztGeaendert: ${verifiedNewKategorie.zuletztGeaendert}, istLokalGeaendert: ${verifiedNewKategorie.istLokalGeaendert}, IstOeffentlich: ${verifiedNewKategorie.istOeffentlich}")
+                    if (isKategorieRelevantForPull) { // Nur hinzufügen, wenn relevant
+                        val newKategorieInRoom = firestoreKategorie.copy(
+                            istLokalGeaendert = false,
+                            istLoeschungVorgemerkt = false
+                        )
+                        kategorieDao.kategorieEinfuegen(newKategorieInRoom)
+                        Timber.d("$TAG: Sync Pull: NEUE Kategorie ${newKategorieInRoom.name} (ID: ${newKategorieInRoom.kategorieId}) von Firestore in Room HINZUGEFUEGT (relevant).")
                     } else {
-                        Timber.e("$TAG: VERIFIZIERUNG NACH PULL-ADD FEHLGESCHLAGEN: Kategorie konnte nach Pull-Add NICHT aus DB abgerufen werden! KategorieID: '${newKategorieInRoom.kategorieId}'")
+                        Timber.d("$TAG: Sync Pull: Kategorie ${firestoreKategorie.name} (ID: ${firestoreKategorie.kategorieId}) von Firestore nicht relevant fuer Pull. Wird ignoriert.")
                     }
-
                 } else {
-                    Timber.d("$TAG: Sync Pull: Lokale Kategorie ${lokaleKategorie.name} (ID: ${lokaleKategorie.kategorieId}) gefunden. Lokal geaendert: ${lokaleKategorie.istLokalGeaendert}, Zur Loeschung vorgemerkt: ${lokaleKategorie.istLoeschungVorgemerkt}, IstOeffentlich: ${lokaleKategorie.istOeffentlich}.")
+                    Timber.d("$TAG: Sync Pull: Lokale Kategorie ${lokaleKategorie.name} (ID: ${lokaleKategorie.kategorieId}) gefunden. Lokal geaendert: ${lokaleKategorie.istLokalGeaendert}, Zur Loeschung vorgemerkt: ${lokaleKategorie.istLoeschungVorgemerkt}.")
 
-                    // Prioritaeten der Konfliktloesung:
-                    // 1. Wenn lokal zur Loeschung vorgemerkt, lokale Version beibehalten (wird im Push geloescht)
+                    // Konfliktloesung: Lokale Aenderungen haben Vorrang vor Pull-Updates
                     if (lokaleKategorie.istLoeschungVorgemerkt) {
-                        Timber.d("$TAG: Sync Pull: Lokale Kategorie ${lokaleKategorie.name} ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert.")
-                        continue // Naechsten Firestore-Kategorie verarbeiten
+                        Timber.d("$TAG: Sync Pull: Lokale Kategorie ist zur Loeschung vorgemerkt. Pull-Version von Firestore wird ignoriert (wird im Push-Sync geloescht/aktualisiert).")
+                        continue
                     }
-                    // 2. Wenn lokal geaendert, lokale Version beibehalten (wird im Push hochgeladen)
                     if (lokaleKategorie.istLokalGeaendert) {
-                        Timber.d("$TAG: Sync Pull: Lokale Kategorie ${lokaleKategorie.name} ist lokal geaendert. Pull-Version von Firestore wird ignoriert.")
-                        continue // Naechsten Firestore-Kategorie verarbeiten
+                        Timber.d("$TAG: Sync Pull: Lokale Kategorie ist lokal geaendert. Pull-Version von Firestore wird ignoriert (wird im Push-Sync hochgeladen).")
+                        continue
                     }
 
-                    // 3. Wenn Firestore-Version zur Loeschung vorgemerkt ist, lokal loeschen (da lokale Version nicht geaendert ist und nicht zur Loeschung vorgemerkt)
-                    if (firestoreKategorie.istLoeschungVorgemerkt) {
-                        kategorieDao.deleteKategorieById(lokaleKategorie.kategorieId)
-                        Timber.d("$TAG: Sync Pull: Kategorie ${lokaleKategorie.name} lokal GELOECHT, da in Firestore als geloescht markiert und lokale Version nicht veraendert.")
-                        continue // Naechsten Firestore-Kategorie verarbeiten
-                    }
-
-                    // --- ZUSÄTZLICHE PRÜFUNG fuer Erstellungszeitpunkt (GOLDSTANDARD-ANPASSUNG) ---
-                    // Wenn erstellungszeitpunkt lokal null ist, aber von Firestore einen Wert hat, aktualisieren
-                    val shouldUpdateErstellungszeitpunkt =
-                        lokaleKategorie.erstellungszeitpunkt == null && firestoreKategorie.erstellungszeitpunkt != null
-                    if (shouldUpdateErstellungszeitpunkt) {
-                        Timber.d("$TAG: Sync Pull: Erstellungszeitpunkt von NULL auf Firestore-Wert aktualisiert fuer KategorieID: '${lokaleKategorie.kategorieId}'.")
-                    }
-                    // --- Ende der ZUSÄTZLICHEN PRÜFUNG ---
-
-                    // 4. Last-Write-Wins basierend auf Zeitstempel (wenn keine Konflikte nach Prioritaeten 1-3)
+                    // Last-Write-Wins Logik fuer Updates (wenn lokal nicht geaendert/vorgemerkt)
                     val firestoreTimestamp = firestoreKategorie.zuletztGeaendert ?: firestoreKategorie.erstellungszeitpunkt
                     val localTimestamp = lokaleKategorie.zuletztGeaendert ?: lokaleKategorie.erstellungszeitpunkt
 
-                    val isFirestoreNewer = when {
-                        firestoreTimestamp == null && localTimestamp == null -> false // Beide null, keine klare Entscheidung, lokale Version (die ja nicht geaendert ist) behalten
-                        firestoreTimestamp != null && localTimestamp == null -> true // Firestore hat Timestamp, lokal nicht, Firestore ist neuer
-                        firestoreTimestamp == null && localTimestamp != null -> false // Lokal hat Timestamp, Firestore nicht, lokal ist neuer
-                        firestoreTimestamp != null && localTimestamp != null -> firestoreTimestamp.after(localTimestamp) // Beide haben Timestamps, vergleichen
-                        else -> false // Sollte nicht passieren
+                    val isFirestoreNewer = if (firestoreTimestamp == null && localTimestamp == null) {
+                        false // Beide null, keine Aenderung
+                    } else if (firestoreTimestamp != null && localTimestamp == null) {
+                        true // Firestore hat Timestamp, lokal nicht
+                    } else if (localTimestamp != null && firestoreTimestamp == null) {
+                        false // Lokal hat Timestamp, Firestore nicht
+                    } else {
+                        firestoreTimestamp!!.after(localTimestamp!!) // Beide nicht null, sicher vergleichen
                     }
 
-                    if (isFirestoreNewer || shouldUpdateErstellungszeitpunkt) {
-                        // Firestore ist neuer und lokale Version ist weder zur Loeschung vorgemerkt noch lokal geaendert (da durch 'continue' oben abgefangen)
-                        // NEU: istOeffentlich wird auf TRUE gesetzt, da es von Firestore kommt
+                    if (isFirestoreNewer) {
                         val updatedKategorie = firestoreKategorie.copy(
-                            // Erstellungszeitpunkt aus Firestore verwenden, da er der "Quelle der Wahrheit" ist
-                            erstellungszeitpunkt = firestoreKategorie.erstellungszeitpunkt,
-                            istLokalGeaendert = false, // Ist jetzt synchronisiert
-                            istLoeschungVorgemerkt = false,
-                            istOeffentlich = true // Von Firestore kommt nur oeffentliches Material
+                            istLokalGeaendert = false, // Reset Flag nach Pull
+                            istLoeschungVorgemerkt = false // Reset Flag nach Pull
                         )
-                        kategorieDao.kategorieEinfuegen(updatedKategorie) // Verwende einfuegen, da @Insert(onConflict = REPLACE) ein Update durchfuehrt
-                        Timber.d("$TAG: Sync Pull: Kategorie ${updatedKategorie.name} (ID: ${updatedKategorie.kategorieId}) von Firestore in Room AKTUALISIERT (Firestore neuer ODER erstellungszeitpunkt aktualisiert). Erstellungszeitpunkt in Room: ${updatedKategorie.erstellungszeitpunkt}, IstOeffentlich: ${updatedKategorie.istOeffentlich}.")
-
-                        // *** NEUER VERIFIZIERUNGS-LOG fuer AKTUALISIERTE Kategorien ***
-                        val verifiedUpdatedKategorie = kategorieDao.getKategorieById(updatedKategorie.kategorieId).firstOrNull()
-                        if (verifiedUpdatedKategorie != null) {
-                            Timber.d("$TAG: VERIFIZIERUNG NACH PULL-UPDATE: KategorieID: '${verifiedUpdatedKategorie.kategorieId}', Erstellungszeitpunkt: ${verifiedUpdatedKategorie.erstellungszeitpunkt}, ZuletztGeaendert: ${verifiedUpdatedKategorie.zuletztGeaendert}, istLokalGeaendert: ${verifiedUpdatedKategorie.istLokalGeaendert}, IstOeffentlich: ${verifiedUpdatedKategorie.istOeffentlich}")
-                        } else {
-                            Timber.e("$TAG: VERIFIZIERUNG NACH PULL-UPDATE FEHLGESCHLAGEN: Kategorie konnte nach Pull-UPDATE NICHT aus DB abgerufen werden! KategorieID: '${updatedKategorie.kategorieId}'")
-                        }
-
+                        kategorieDao.kategorieEinfuegen(updatedKategorie) // Verwendet insert (onConflict = REPLACE) zum Aktualisieren
+                        Timber.d("$TAG: Sync Pull: Kategorie ${updatedKategorie.name} (ID: ${updatedKategorie.kategorieId}) von Firestore in Room AKTUALISIERT (Firestore neuer).")
                     } else {
-                        Timber.d("$TAG: Sync Pull: Lokale Kategorie ${lokaleKategorie.name} (ID: ${lokaleKategorie.kategorieId}) ist aktueller oder gleich, oder Firestore-Version ist nicht neuer. KEINE AKTUALISIERUNG von Firestore.")
+                        Timber.d("$TAG: Sync Pull: Lokale Kategorie ${lokaleKategorie.name} (ID: ${lokaleKategorie.kategorieId}) ist aktueller oder gleich. KEINE AKTUALISIERUNG durch Pull.")
                     }
                 }
             }
 
-            // 5. Lokale Kategorien finden, die in Firestore nicht mehr existieren und lokal NICHT zur Loeschung vorgemerkt sind
-            val firestoreKategorieIds = firestoreKategorieList.map { it.kategorieId }.toSet()
-
+            val uniqueFirestoreKategorieIds = uniqueFirestoreKategorien.map { it.kategorieId }.toSet()
             for (localKategorie in allLocalKategorien) {
-                // NEU: Pruefung, ob das lokale Kategorie oeffentlich ist. Persoenliche Kategorien werden NICHT geloescht.
-                if (localKategorie.kategorieId.isNotEmpty() && !firestoreKategorieIds.contains(localKategorie.kategorieId) &&
-                    !localKategorie.istLoeschungVorgemerkt && !localKategorie.istLokalGeaendert && localKategorie.istOeffentlich) { // <--- WICHTIGE NEUE HINZUFUEGUNG
+                val istRelevantFuerBenutzer = localKategorie.erstellerId == aktuellerBenutzerId ||
+                        produktRepo.isProduktLinkedToRelevantGroupViaKategorie(localKategorie.kategorieId, meineGruppenIds) ||
+                        isKategoriePrivateAndOwnedBy(localKategorie.kategorieId, aktuellerBenutzerId)
+
+                // Lokale Kategorie loeschen, wenn sie nicht mehr in Firestore ist
+                // UND nicht lokal geaendert/vorgemerkt ist
+                // UND nicht relevant fuer diesen Benutzer ist (keine Gruppenverbindung ODER nicht privat/eigen)
+                if (!uniqueFirestoreKategorieIds.contains(localKategorie.kategorieId) &&
+                    !localKategorie.istLoeschungVorgemerkt && !localKategorie.istLokalGeaendert &&
+                    !istRelevantFuerBenutzer) {
                     kategorieDao.deleteKategorieById(localKategorie.kategorieId)
-                    Timber.d("$TAG: Sync Pull: Lokale Kategorie ${localKategorie.name} (ID: ${localKategorie.kategorieId}) GELOECHT, da nicht mehr in Firestore vorhanden und lokal NICHT zur Loeschung vorgemerkt UND NICHT lokal geaendert UND istOeffentlich war.")
-                } else if (!localKategorie.istOeffentlich) { // Zusaetzlicher Log fuer persoenliche Kategorien
-                    Timber.d("$TAG: Sync Pull: Lokale Kategorie ${localKategorie.name} (ID: ${localKategorie.kategorieId}) ist persoenlich (istOeffentlich=false) und nicht in Firestore. Bleibt lokal erhalten.")
+                    Timber.d("$TAG: Sync Pull: Lokale Kategorie ${localKategorie.name} (ID: ${localKategorie.kategorieId}) GELÖSCHT, da nicht mehr in Firestore vorhanden UND nicht relevant fuer diesen Benutzer UND lokal synchronisiert war.")
+                } else if (istRelevantFuerBenutzer) {
+                    Timber.d("$TAG: Sync Pull: Lokale Kategorie ${localKategorie.name} (ID: ${localKategorie.kategorieId}) BLEIBT LOKAL, da sie noch fuer diesen Benutzer relevant ist (mit relevanter Gruppe verbunden ODER privat/eigen).")
+                } else {
+                    Timber.d("$TAG: Sync Pull: Lokale Kategorie ${localKategorie.name} (ID: ${localKategorie.kategorieId}) BLEIBT LOKAL (Grund: ${if(localKategorie.istLokalGeaendert) "lokal geaendert" else if (localKategorie.istLoeschungVorgemerkt) "zur Loeschung vorgemerkt" else "nicht remote gefunden, aber dennoch lokal behalten, da sie nicht als nicht-relevant identifiziert wurde."}).")
                 }
             }
             Timber.d("$TAG: Sync Pull: Pull-Synchronisation der Kategoriedaten abgeschlossen.")

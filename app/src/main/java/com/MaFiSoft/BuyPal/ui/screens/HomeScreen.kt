@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/HomeScreen.kt
-// Stand: 2025-06-17_12:15:00, Codezeilen: 128 (Einkaufslisten-Button aktiviert)
+// Stand: 2025-06-27_12:50:00, Codezeilen: ~120 (Artikelverwaltung Button entfernt)
 
 package com.MaFiSoft.BuyPal.ui.screens
 
@@ -75,12 +75,13 @@ fun HomeScreen(
             ) {
                 Text("Zur Benutzerverwaltung")
             }
-            Button(
-                onClick = { navController.navigate(Screen.ArtikelVerwaltung.route) },
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                Text("Zur Artikelverwaltung (überarbeiten!)")
-            }
+            // ENTFERNT: Button zur Artikelverwaltung
+            // Button(
+            //     onClick = { navController.navigate(Screen.ArtikelVerwaltung.route) },
+            //     modifier = Modifier.padding(top = 8.dp)
+            // ) {
+            //     Text("Zur Artikelverwaltung (überarbeiten!)")
+            // }
             Button(
                 onClick = { navController.navigate(Screen.KategorieVerwaltung.route) },
                 modifier = Modifier.padding(top = 8.dp)
@@ -105,7 +106,6 @@ fun HomeScreen(
             ) {
                 Text("Zur Gruppenverwaltung")
             }
-            // HINZUGEFÜGT: Einkaufslistenverwaltung Button aktiviert & Text angepasst
             Button(
                 onClick = { navController.navigate(Screen.EinkaufslisteVerwaltung.route) },
                 modifier = Modifier.padding(top = 8.dp)

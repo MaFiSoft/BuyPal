@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/GruppeDao.kt
-// Stand: 2025-06-10_20:04:00, Codezeilen: 50
+// Stand: 2025-06-23_21:58:00, Codezeilen: 50 (Unveraendert, passt zur neuen Logik)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -35,8 +35,7 @@ interface GruppeDao {
     suspend fun getAllGruppenIncludingMarkedForDeletion(): List<GruppeEntitaet>
 
     // Methoden zum Abrufen von unsynchronisierten Daten
-    // KORRIGIERT: Nur nach istLokalGeaendert filtern, wie beim BenutzerDao
-    @Query("SELECT * FROM gruppe WHERE istLokalGeaendert = 1")
+    @Query("SELECT * FROM gruppe WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0") // KORRIGIERT: istLoeschungVorgemerkt = 0 hinzugefügt
     suspend fun getUnsynchronisierteGruppen(): List<GruppeEntitaet>
 
     // Methode zum Abrufen von Gruppen, die zur Loeschung vorgemerkt sind
