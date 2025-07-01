@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/GruppeEntitaet.kt
-// Stand: 2025-06-23_21:17:00, Codezeilen: ~30 (istOeffentlich-Flag entfernt, Beitrittscode hinzugefuegt)
+// Stand: 2025-07-01_12:45:00, Codezeilen: ~30 (Erstellungszeitpunkt auf ServerTimestamp umgestellt)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -19,7 +19,6 @@ import java.util.Date
  * @param beschreibung Optionale, detailliertere Beschreibung der Gruppe.
  * @param mitgliederIds Liste von Benutzer-IDs (UUIDs), die zu dieser Gruppe gehoeren.
  * @param erstellerId Die ID des Benutzers (UUID), der diese Gruppe erstellt hat.
- * @param beitrittsCode Der Code, der zum Beitreten zu dieser Gruppe benoetigt wird (optional, kann leer sein).
  * @param erstellungszeitpunkt Zeitstempel der Erstellung der Gruppe. Wird automatisch von Firestore gesetzt.
  * @param zuletztGeaendert Zeitstempel der letzten Aenderung der Gruppe. Wird manuell/automatisch gesetzt fuer Last-Write-Wins.
  * @param istLokalGeaendert Flag, das angibt, ob die Gruppe lokal geaendert wurde und ein Sync notwendig ist.
@@ -31,14 +30,26 @@ data class GruppeEntitaet(
     val name: String,
     val beschreibung: String? = null,
     val mitgliederIds: List<String> = emptyList(), // Liste von Benutzer-IDs, die zu dieser Gruppe gehoeren
-    val erstellerId: String, // NEU: Die ID des Benutzers, der diese Gruppe erstellt hat.
-    val beitrittsCode: String? = null, // NEU: Code zum Beitreten der Gruppe
+    val erstellerId: String, // Die ID des Benutzers (UUID), der diese Gruppe erstellt hat.
     @ServerTimestamp
     val erstellungszeitpunkt: Date? = null,
     val zuletztGeaendert: Date? = null,
-    // val istOeffentlich: Boolean = false, // ENTFERNT: Die Oeffentlichkeit ergibt sich aus der Existenz in Firestore und Gruppenmitgliedschaft
     @get:Exclude // Diese Felder sollen NICHT in Firestore gespeichert werden, nur lokal.
     val istLokalGeaendert: Boolean = false,
-    @get:Exclude // Diese Felder sollen NICHT in Firestore gespeichert werden, nur lokal.
+    @get:Exclude
     val istLoeschungVorgemerkt: Boolean = false
-)
+) {
+    // Sekundaerer Konstruktor, um den Ersteller als erstes Mitglied hinzuzufuegen.
+    // Der Beitrittscode ist nun implizit die gruppeId.
+    constructor(gruppeId: String, name: String, beschreibung: String?, erstellerId: String) : this(
+        gruppeId = gruppeId,
+        name = name,
+        beschreibung = beschreibung,
+        mitgliederIds = listOf(erstellerId), // Ersteller ist immer das erste Mitglied
+        erstellerId = erstellerId,
+        erstellungszeitpunkt = null, // WICHTIG: Hier auf null setzen, damit Firestore den Timestamp setzt
+        zuletztGeaendert = Date(), // Lokal setzen, um Aenderung zu signalisieren
+        istLokalGeaendert = true,
+        istLoeschungVorgemerkt = false
+    )
+}
