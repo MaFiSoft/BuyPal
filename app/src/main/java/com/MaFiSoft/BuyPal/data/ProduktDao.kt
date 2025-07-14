@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/ProduktDao.kt
-// Stand: 2025-06-27_12:17:00, Codezeilen: ~65 (Hinzugefuegt: getProdukteByKategorieSynchronous)
+// Stand: 2025-07-06_09:45:00, Codezeilen: ~70 (Hinzugefuegt: getProduktByIdSynchronous)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -24,6 +24,14 @@ interface ProduktDao {
 
     @Query("SELECT * FROM produkt WHERE produktId = :produktId")
     fun getProduktById(produktId: String): Flow<ProduktEntitaet?>
+
+    /**
+     * NEU: Synchrone Methode zum Abrufen eines Produkts nach ID (fuer interne Repository-Logik).
+     * @param produktId Die ID des abzurufenden Produkts.
+     * @return Die Produkt-Entitaet (oder null), falls gefunden.
+     */
+    @Query("SELECT * FROM produkt WHERE produktId = :produktId")
+    suspend fun getProduktByIdSynchronous(produktId: String): ProduktEntitaet?
 
     /**
      * Holt alle aktiven Produkte (nicht zur Loeschung vorgemerkt).

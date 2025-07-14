@@ -1,11 +1,11 @@
 // app/build.gradle.kts
-// Stand: 2025-06-24_05:55:00, Codezeilen: ~100 (Endgueltiger Zustand nach Beseitigung aller Warnungen)
+// Stand: 2025-07-12_22:55:00, Codezeilen: ~100 (runtime-saveable Abhaengigkeit hinzugefuegt)
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
-    id("org.jetbrains.kotlin.plugin.compose") // <--- Dieses Plugin wurde wieder hinzugefuegt, um die Gradle-Warnung zu beheben
+    id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
 
     id("com.google.dagger.hilt.android")
@@ -44,11 +44,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_11 // GEÄNDERT
+        targetCompatibility = JavaVersion.VERSION_11 // GEÄNDERT
     }
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "11" // GEÄNDERT
     }
     buildFeatures {
         compose = true
@@ -88,10 +88,12 @@ dependencies {
     // Lifecycle ViewModel (für ViewModels in Composables)
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
 
-    // Korrigierter Ausschluss für material-icons-extended
+    // Material Icons Extended (Material 2 Icons, die Sie derzeit verwenden)
     implementation("androidx.compose.material:material-icons-extended:1.6.6") {
         exclude(group = "androidx.compose.material", module = "material")
     }
+    // HINWEIS: Wenn Sie die Material 3 Icons (Icons.Filled.Palette etc.) wieder aktivieren,
+    // muessen Sie diese Zeile durch 'implementation("androidx.compose.material.icons:icons-extended:1.6.6")' ersetzen.
 
     // Room (für Datenbank-Persistenz)
     implementation("androidx.room:room-runtime:2.6.1")
@@ -124,6 +126,7 @@ dependencies {
     // LIFECYCLE UND COMPOSE REACTIVE
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.compose.runtime:runtime-livedata:1.6.7")
+    implementation("androidx.compose.runtime:runtime-saveable:1.6.7") // HINZUGEFÜGT: Für rememberSaveable
 
     // Hilt-Abhängigkeiten
     implementation("com.google.dagger:hilt-android:2.48")
@@ -132,4 +135,7 @@ dependencies {
 
     // Hilt-Integration für Compose ViewModels
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
+
+    //NEU für Farbschema-Auswahl
+    implementation("androidx.datastore:datastore-preferences:1.0.0")
 }

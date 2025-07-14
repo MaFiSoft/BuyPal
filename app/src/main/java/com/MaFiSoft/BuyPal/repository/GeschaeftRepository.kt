@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/GeschaeftRepository.kt
-// Stand: 2025-06-27_12:24:00, Codezeilen: ~40 (Hinzugefuegt: isGeschaeftPrivateAndOwnedBy)
+// Stand: 2025-07-06_09:00:00, Codezeilen: ~45 (isGeschaeftLinkedToRelevantGroup Signatur und getGeschaeftByIdSynchronous hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.repository
 
@@ -17,14 +17,21 @@ interface GeschaeftRepository {
     fun getAllGeschaefte(): Flow<List<GeschaeftEntitaet>> // Holt alle aktiven Geschaefte (nicht zur Löschung vorgemerkt)
 
     /**
-     * NEU: Bestimmt, ob ein Geschaeft mit einer der relevanten Gruppen des Benutzers verknuepft ist.
-     * Dies ist ein kaskadierender Check: Geschaeft -> ProduktGeschaeftVerbindung -> Produkt -> Artikel -> Einkaufsliste -> Gruppe.
+     * NEU: Synchrone Methode zum Abrufen eines Geschaefts nach ID (fuer interne Repository-Logik)
+     * @param geschaeftId Die ID des abzurufenden Geschaefts.
+     * @return Die Geschaeft-Entitaet oder null, falls nicht gefunden.
+     */
+    suspend fun getGeschaeftByIdSynchronous(geschaeftId: String): GeschaeftEntitaet?
+
+    /**
+     * Bestimmt, ob ein Geschaeft mit einer der relevanten Einkaufslisten des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Geschaeft -> ProduktGeschaeftVerbindung -> Produkt -> Artikel -> Einkaufsliste.
      *
      * @param geschaeftId Die ID des zu pruefenden Geschaefts.
-     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
-     * @return True, wenn das Geschaeft mit einer relevanten Gruppe verknuepft ist, sonst False.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn das Geschaeft mit einer relevanten Einkaufsliste verknuepft ist, sonst False.
      */
-    suspend fun isGeschaeftLinkedToRelevantGroup(geschaeftId: String, meineGruppenIds: List<String>): Boolean
+    suspend fun isGeschaeftLinkedToRelevantGroup(geschaeftId: String, aktuellerBenutzerId: String): Boolean
 
     /**
      * NEU: Prueft, ob ein Geschaeft eine private Kategorie des aktuellen Benutzers ist.

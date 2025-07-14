@@ -1,7 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools"> <!-- HINZUGEFÜGT: tools-Namespace Deklaration -->
     <style name="Theme.BuyPal" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/blue_700</item>
-        <item name="android:navigationBarColor">@color/blue_700</item>
+        <item name="android:navigationBarColor">@android:color/white</item> <!-- Explizit weiß, wie gewünscht -->
+        <!-- Setzt die Navigationsleisten-Symbole auf dunkel, wenn der Hintergrund hell ist -->
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
     </style>
 </resources>
+
+
+    <!--    <?xml version="1.0" encoding="utf-8"?>-->
+<!--<resources>-->
+<!--    <style name="Theme.BuyPal" parent="android:Theme.Material.Light.NoActionBar">-->
+<!--        <item name="android:statusBarColor">@color/blue_700</item>-->
+<!--        <item name="android:navigationBarColor">?android:attr/colorBackground</item>-->
+<!--    </style>-->
+<!--</resources>-->

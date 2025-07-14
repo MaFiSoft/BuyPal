@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/BenutzerRepositoryImpl.kt
-// Stand: 2025-06-25_00:33:03, Codezeilen: ~500 (eindeutigerHash Logik, Registrierung und Sync-Fixes)
+// Stand: 2025-07-07_22:55:00, Codezeilen: ~790 (Firestore-Pfad fuer Benutzer-Sammlung korrigiert)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
@@ -10,6 +10,7 @@ import com.MaFiSoft.BuyPal.data.BenutzerDao
 import com.MaFiSoft.BuyPal.data.BenutzerEntitaet
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FieldPath // Import fuer FieldPath
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -18,7 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.tasks.await // Expliziter Import fuer Tasks
+import kotlinx.coroutines.withContext // Expliziter Import fuer withContext
 import timber.log.Timber
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -29,430 +31,534 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Implementierung von [BenutzerRepository] fuer die Verwaltung von Benutzerdaten.
- * Implementiert die Room-first-Strategie mit Delayed Sync nach dem Goldstandard.
- * Verwaltet benutzerdefinierte Authentifizierung mit PIN/Salt.
+ * Implementierung des Benutzer-Repository.
+ * Verwaltet Benutzerdaten lokal (Room) und in der Cloud (Firestore) nach dem Room-first-Ansatz.
+ * Dieser Code implementiert den "Goldstandard" der Synchronisationslogik.
  */
 @Singleton
 class BenutzerRepositoryImpl @Inject constructor(
     private val benutzerDao: BenutzerDao,
     private val firestore: FirebaseFirestore,
-    private val context: Context // Hinzugefuegt fuer Context, z.B. fuer ConnectivityManager
+    private val context: Context,
+    // KORREKTUR: appId wird hier nicht mehr fuer den Firestore-Pfad benoetigt,
+    // da die Sammlung direkt auf oberster Ebene liegt.
+    // private val appId: String // Diese Zeile kann entfernt werden, wenn nicht anderswo benoetigt
 ) : BenutzerRepository {
 
     private val ioScope = CoroutineScope(Dispatchers.IO)
-    private val firestoreCollection = firestore.collection("benutzer") // Name der Firestore-Sammlung
-    private val TAG = "DEBUG_REPO_BENUTZER"
+    // KORREKTUR: Firestore-Sammlung direkt auf oberster Ebene
+    private val firestoreBenutzerCollection = firestore.collection("benutzer")
+    private val TAG = "BenutzerRepoImpl"
 
-    // Verwaltet den aktuell angemeldeten Benutzer im Speicher
-    private val _aktuellerBenutzer = MutableStateFlow<BenutzerEntitaet?>(null)
+    // StateFlow zur Ueberwachung des Anmeldestatus
+    private val _istAngemeldet = MutableStateFlow(false)
+    val istAngemeldet: StateFlow<Boolean> = _istAngemeldet.asStateFlow()
 
     init {
+        // Initialer Check des Anmeldestatus und Start des Syncs
         ioScope.launch {
-            // Beim Start des Repositories den lokalen Benutzer laden (falls vorhanden)
-            // Da wir nur EINEN Benutzer lokal halten, fragen wir einfach alle ab und nehmen den ersten
-            val lokalerBenutzerListe = benutzerDao.getAllBenutzer().firstOrNull()
-            val lokalerBenutzer = lokalerBenutzerListe?.firstOrNull() // Holt den ersten Benutzer aus der Liste
-
-            _aktuellerBenutzer.value = lokalerBenutzer
-            if (lokalerBenutzer != null) {
-                Timber.d("$TAG: Initialisierung: Lokaler Benutzer ${lokalerBenutzer.benutzername} (ID: ${lokalerBenutzer.benutzerId}) beim Start geladen.")
-                // Startet einen initialen Sync, nachdem ein Benutzer geladen wurde
-                syncBenutzerDaten() // Dies wird auch gepushte Loeschungen etc. behandeln
-            } else {
-                Timber.d("$TAG: Initialisierung: Kein lokaler Benutzer gefunden. Registrierungs-/Anmeldebildschirm erforderlich.")
-            }
+            Timber.d("$TAG: Initialisiere BenutzerRepositoryImpl. Starte initialen Sync.")
+            val aktuellerBenutzer = benutzerDao.getAktuellerAngemeldeterBenutzer().firstOrNull()
+            _istAngemeldet.value = (aktuellerBenutzer != null)
+            syncBenutzerDaten()
         }
     }
 
-    // --- Private Hilfsfunktionen fuer PIN-Hashing ---
-
     /**
-     * Generiert einen zufaelligen Salt.
-     * @return Ein Base64-kodierter String des Salts.
+     * Generiert einen zufaelligen Salt fuer die PIN-Verschluesselung.
+     * @return Ein ByteArray, das den Salt enthaelt.
      */
-    private fun generateSalt(): String {
+    private fun generateSalt(): ByteArray {
         val random = SecureRandom()
         val salt = ByteArray(16) // 16 Bytes fuer den Salt
         random.nextBytes(salt)
-        // Verwende android.util.Base64 fuer Kompatibilitaet mit niedrigeren API-Levels
-        return Base64.encodeToString(salt, Base64.NO_WRAP)
+        return salt
     }
 
     /**
      * Hashes eine PIN mit einem gegebenen Salt unter Verwendung von SHA-256.
-     * @param pin Die Klartext-PIN.
-     * @param salt Der Salt-String.
-     * @return Ein Base64-kodierter String des gehashten Pins.
+     * @param pin Die zu hashende PIN.
+     * @param salt Der Salt als ByteArray.
+     * @return Der gehashte PIN als Base64-String.
      */
-    private fun hashPin(pin: String, salt: String): String {
-        val saltedPin = pin + salt // Konkatenierung von PIN und Salt
+    private fun hashPin(pin: String, salt: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        val hashedBytes = digest.digest(saltedPin.toByteArray())
-        // Verwende android.util.Base64 fuer Kompatibilitaet mit niedrigeren API-Levels
+        digest.reset()
+        digest.update(salt)
+        val hashedBytes = digest.digest(pin.toByteArray(Charsets.UTF_8))
         return Base64.encodeToString(hashedBytes, Base64.NO_WRAP)
     }
 
     /**
-     * NEU: Hashes einen beliebigen String (z.B. Benutzername + PIN ohne Salt)
-     * unter Verwendung von SHA-256. Dies wird fuer den eindeutigenHash verwendet.
-     * @param input Der zu hashende String.
-     * @return Ein Base64-kodierter String des gehashten Inputs.
+     * Hashes eine PIN mit einem gegebenen Salt-String (fuer den eindeutigen Hash).
+     * @param pin Die zu hashende PIN.
+     * @param salt Der Salt als String (wird in ByteArray umgewandelt).
+     * @return Der gehashte PIN als Base64-String.
      */
-    private fun hashInput(input: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hashedBytes = digest.digest(input.toByteArray())
-        return Base64.encodeToString(hashedBytes, Base64.NO_WRAP)
+    private fun hashPin(pin: String, salt: String): String {
+        return hashPin(pin, salt.toByteArray(Charsets.UTF_8))
     }
 
-    // --- Room-Operationen ---
-
-    override suspend fun benutzerSpeichern(benutzer: BenutzerEntitaet) {
-        Timber.d("$TAG: Versuche Benutzer lokal zu speichern/aktualisieren: ${benutzer.benutzername} (ID: ${benutzer.benutzerId})")
-        val existingBenutzer = benutzerDao.getBenutzerById(benutzer.benutzerId).firstOrNull()
-
-        val benutzerToSave = benutzer.copy(
-            erstellungszeitpunkt = existingBenutzer?.erstellungszeitpunkt ?: benutzer.erstellungszeitpunkt,
-            zuletztGeaendert = Date(), // Immer aktualisieren bei lokaler Aenderung
-            istLokalGeaendert = true, // Markieren fuer Sync
-            istLoeschungVorgemerkt = false // Sicherstellen, dass das Flag entfernt wird, wenn gespeichert
-        )
-        benutzerDao.benutzerEinfuegen(benutzerToSave)
-        Timber.d("$TAG: Benutzer ${benutzerToSave.benutzername} (ID: ${benutzerToSave.benutzerId}) lokal gespeichert/aktualisiert. istLokalGeaendert: ${benutzerToSave.istLokalGeaendert}, Erstellungszeitpunkt: ${benutzerToSave.erstellungszeitpunkt}")
-
-        // Aktualisiere den aktuellen Benutzer im StateFlow
-        _aktuellerBenutzer.value = benutzerToSave
-    }
-
-    override fun getBenutzerById(benutzerId: String): Flow<BenutzerEntitaet?> {
-        Timber.d("$TAG: Abrufen Benutzer nach ID: $benutzerId")
-        return benutzerDao.getBenutzerById(benutzerId)
-    }
-
-    override fun getBenutzerByBenutzername(benutzername: String): Flow<BenutzerEntitaet?> {
-        Timber.d("$TAG: Abrufen Benutzer nach Benutzername: $benutzername")
-        return benutzerDao.getBenutzerByBenutzername(benutzername)
-    }
-
-    override fun getAktuellerBenutzer(): Flow<BenutzerEntitaet?> {
-        Timber.d("$TAG: Abrufen des aktuellen Benutzers (via StateFlow).")
-        return _aktuellerBenutzer.asStateFlow()
-    }
-
-    override fun getAllBenutzer(): Flow<List<BenutzerEntitaet>> {
-        Timber.d("$TAG: Abrufen aller Benutzer (nicht zur Loeschung vorgemerkt).")
-        return benutzerDao.getAllBenutzer()
-    }
-
-    override suspend fun markBenutzerForDeletion(benutzer: BenutzerEntitaet) {
-        Timber.d("$TAG: Markiere Benutzer zur Loeschung: ${benutzer.benutzername} (ID: ${benutzer.benutzerId})")
-        val benutzerLoeschenVorgemerkt = benutzer.copy(
-            istLoeschungVorgemerkt = true,
-            zuletztGeaendert = Date(), // Aktualisiere den Zeitstempel, um Aenderung zu signalisieren
-            istLokalGeaendert = true // Markiere als lokal geaendert, damit er gepusht wird
-        )
-        benutzerDao.benutzerAktualisieren(benutzerLoeschenVorgemerkt)
-        Timber.d("$TAG: Benutzer ${benutzerLoeschenVorgemerkt.benutzername} (ID: ${benutzerLoeschenVorgemerkt.benutzerId}) lokal zur Loeschung vorgemerkt. istLoeschungVorgemerkt: ${benutzerLoeschenVorgemerkt.istLoeschungVorgemerkt}, istLokalGeaendert: ${benutzerLoeschenVorgemerkt.istLokalGeaendert}")
-
-        // Wenn der aktuell aktive Benutzer zur Loeschung vorgemerkt wird, diesen auch aus dem StateFlow entfernen
-        if (_aktuellerBenutzer.value?.benutzerId == benutzer.benutzerId) {
-            _aktuellerBenutzer.value = null
-        }
-    }
-
-    override suspend fun loescheBenutzer(benutzerId: String) {
-        Timber.d("$TAG: Benutzer endgueltig loeschen (lokal): $benutzerId")
-        try {
-            benutzerDao.deleteBenutzerById(benutzerId)
-            Timber.d("$TAG: Benutzer $benutzerId erfolgreich lokal endgueltig geloescht.")
-        } catch (e: Exception) {
-            Timber.e(e, "$TAG: Fehler beim endgueltigen Loeschen von Benutzer $benutzerId lokal. ${e.message}")
-        }
-    }
-
-    override suspend fun abmelden() {
-        Timber.d("$TAG: Versuche aktuell angemeldeten Benutzer lokal abzumelden.")
-        _aktuellerBenutzer.value?.let { currentLoggedInUser ->
-            // Hier: Wir loeschen ihn lokal, da "abmelden" bedeutet,
-            // dass dieser spezifische Login-Zustand beendet ist. Das eigentliche Benutzerprofil
-            // bleibt in Firestore bestehen, kann aber beim naechsten Login wiederhergestellt werden.
-            loescheBenutzer(currentLoggedInUser.benutzerId) // Lokale Loeschung
-            _aktuellerBenutzer.value = null // Setze den StateFlow auf null
-            Timber.d("$TAG: Benutzer '${currentLoggedInUser.benutzername}' (ID: ${currentLoggedInUser.benutzerId}) erfolgreich lokal abgemeldet.")
-        } ?: Timber.d("$TAG: Es war kein Benutzer angemeldet. Abmeldung nicht notwendig.")
-    }
-
-    // --- Authentifizierungs-Operationen ---
-
+    /**
+     * Registriert einen neuen Benutzer im System.
+     * Hashes die PIN mit einem Salt und speichert den Benutzer in Room und Firestore.
+     * Stellt die globale Einzigartigkeit des Benutzernamens sicher.
+     *
+     * @param benutzername Der Benutzername des neuen Benutzers.
+     * @param pin Die PIN/Passwort des neuen Benutzers.
+     * @return True, wenn die Registrierung erfolgreich war, False sonst (z.B. Benutzername bereits vergeben, oder kein Internet).
+     */
     override suspend fun registrieren(benutzername: String, pin: String): Boolean {
-        Timber.d("$TAG: Registriere Benutzer: $benutzername")
+        Timber.d("$TAG: Registrierung fuer Benutzername: $benutzername")
         if (!isOnline()) {
             Timber.e("$TAG: Registrierung fehlgeschlagen: Keine Internetverbindung.")
             return false
         }
 
-        // 1. NEU: Pruefe auf Einzigartigkeit der Kombination Benutzername + PIN (ohne Salt)
-        val neuerEindeutigerHash = hashInput(benutzername + pin)
-        try {
-            val existingUserWithSameHash = firestoreCollection
-                .whereEqualTo("eindeutigerHash", neuerEindeutigerHash)
-                .get().await().toObjects(BenutzerEntitaet::class.java)
+        val salt = generateSalt()
+        val hashedPin = hashPin(pin, salt)
+        val eindeutigerHash = hashPin(benutzername + pin, "") // Hash ohne Salt fuer Einzigartigkeit
 
-            // Filtern nach Benutzern, die NICHT zur Loeschung vorgemerkt sind.
-            val activeExistingUser = existingUserWithSameHash.filter { !it.istLoeschungVorgemerkt }
-
-            if (activeExistingUser.isNotEmpty()) {
-                Timber.w("$TAG: Registrierung fehlgeschlagen: Kombination aus Benutzername und PIN existiert bereits.")
-                return false // Diese Kombination ist bereits registriert.
+        return try {
+            // Pruefen, ob Benutzername bereits existiert
+            val existingBenutzer = withContext(Dispatchers.IO) {
+                firestoreBenutzerCollection
+                    .whereEqualTo("eindeutigerHash", eindeutigerHash)
+                    .get().await()
             }
+
+            if (!existingBenutzer.isEmpty) {
+                Timber.w("$TAG: Registrierung fehlgeschlagen: Benutzername existiert bereits oder PIN ist zu einfach.")
+                return false
+            }
+
+            val neuerBenutzerId = UUID.randomUUID().toString()
+            val neuerBenutzer = BenutzerEntitaet(
+                benutzerId = neuerBenutzerId,
+                benutzername = benutzername,
+                hashedPin = hashedPin,
+                pinSalt = Base64.encodeToString(salt, Base64.NO_WRAP), // Salt als String speichern
+                eindeutigerHash = eindeutigerHash,
+                erstellungszeitpunkt = Date(), // Wird von Firestore ueberschrieben
+                zuletztGeaendert = Date(),
+                istLokalGeaendert = true, // Muss gepusht werden
+                istLoeschungVorgemerkt = false,
+                istAngemeldet = true // Bei Registrierung sofort anmelden
+            )
+
+            // Zuerst lokal speichern
+            benutzerDao.benutzerEinfuegen(neuerBenutzer)
+            Timber.d("$TAG: Benutzer '$benutzername' lokal registriert.")
+
+            // Dann zu Firestore hochladen
+            firestoreBenutzerCollection.document(neuerBenutzer.benutzerId).set(neuerBenutzer.copy(istLokalGeaendert = false, istAngemeldet = false)).await()
+            Timber.d("$TAG: Benutzer '$benutzername' erfolgreich in Firestore registriert.")
+
+            _istAngemeldet.value = true
+            Timber.d("$TAG: Registrierung fuer Benutzer '$benutzername' erfolgreich.")
+            true
         } catch (e: Exception) {
-            Timber.e(e, "$TAG: FEHLER bei Firestore-Abfrage (Registrierung - eindeutigerHash Pruefung): ${e.message}")
-            return false
-        }
-
-        // 2. Lokale Datenbank komplett leeren, um nur EINEN Benutzer zu haben (Goldstandard)
-        benutzerDao.deleteAllBenutzer()
-        _aktuellerBenutzer.value = null // Sicherstellen, dass StateFlow auch null ist
-
-        val neuerBenutzerId = UUID.randomUUID().toString()
-        val neuerSalt = generateSalt()
-        val neuerHashedPin = hashPin(pin, neuerSalt)
-
-        val neuerBenutzer = BenutzerEntitaet(
-            benutzerId = neuerBenutzerId,
-            benutzername = benutzername,
-            hashedPin = neuerHashedPin,
-            pinSalt = neuerSalt,
-            eindeutigerHash = neuerEindeutigerHash, // NEU: Den eindeutigen Hash setzen
-            erstellungszeitpunkt = Date(),
-            zuletztGeaendert = Date(),
-            istLokalGeaendert = true,
-            istLoeschungVorgemerkt = false,
-            email = null
-        )
-
-        try {
-            // Zuerst lokal speichern und als aktuellen Benutzer setzen
-            benutzerSpeichern(neuerBenutzer) // Diese Methode setzt auch _aktuellerBenutzer.value und istLokalGeaendert = true
-            Timber.d("$TAG: Benutzer '$benutzername' (ID: $neuerBenutzerId) lokal registriert.")
-
-            // Dann sofort synchronisieren, um den Benutzer in Firestore anzulegen
-            syncBenutzerDaten()
-
-            Timber.d("$TAG: Benutzer '$benutzername' (ID: $neuerBenutzerId) erfolgreich registriert und synchronisiert.")
-            return true
-        } catch (e: Exception) {
-            Timber.e(e, "$TAG: FEHLER beim Speichern/Synchronisieren des neuen Benutzers: ${e.message}")
-            return false
+            Timber.e(e, "$TAG: FEHLER bei der Registrierung: ${e.message}")
+            false
         }
     }
 
+    /**
+     * Meldet einen bestehenden Benutzer im System an.
+     * Verifiziert den Benutzernamen und die PIN gegen in Firestore gespeicherte Hashes.
+     *
+     * @param benutzername Der Benutzername.
+     * @param pin Die eingegebene PIN/Passwort.
+     * @return True, wenn die Anmeldung erfolgreich war, False sonst.
+     */
     override suspend fun anmelden(benutzername: String, pin: String): Boolean {
-        Timber.d("$TAG: Anmelden Benutzer: $benutzername")
+        Timber.d("$TAG: Anmeldung fuer Benutzername: $benutzername")
         if (!isOnline()) {
             Timber.e("$TAG: Anmeldung fehlgeschlagen: Keine Internetverbindung.")
             return false
         }
 
-        try {
-            // Berechne den erwarteten eindeutigen Hash fuer die Anmeldung
-            val erwarteterEindeutigerHash = hashInput(benutzername + pin)
+        return try {
+            val eindeutigerHash = hashPin(benutzername + pin, "") // Hash ohne Salt fuer die Abfrage
 
-            // Hole ALLE Benutzer, die diesen eindeutigen Hash haben könnten
-            val firestoreUsers = firestoreCollection
-                .whereEqualTo("eindeutigerHash", erwarteterEindeutigerHash)
-                .get().await().toObjects(BenutzerEntitaet::class.java)
+            // Schritt 1: Benutzer-ID basierend auf eindeutigem Hash vor der Transaktion abrufen
+            val querySnapshot = firestoreBenutzerCollection
+                .whereEqualTo("eindeutigerHash", eindeutigerHash)
+                .get().await() // Hier ist await() korrekt, da ausserhalb der Transaktion
 
-            var foundMatchingUser: BenutzerEntitaet? = null
-            for (fsUser in firestoreUsers) {
-                // Ueberspringe zur Loeschung vorgemerkte Benutzer
-                if (fsUser.istLoeschungVorgemerkt) {
-                    Timber.d("$TAG: Benutzer ${fsUser.benutzername} (ID: ${fsUser.benutzerId}) ist zur Loeschung vorgemerkt, wird ignoriert.")
-                    continue
-                }
+            val firestoreBenutzerId = querySnapshot.documents.firstOrNull()?.id
 
-                if (fsUser.pinSalt == null || fsUser.hashedPin == null) {
-                    Timber.w("$TAG: Benutzer ${fsUser.benutzername} (ID: ${fsUser.benutzerId}) hat keinen PIN-Salt oder gehashten PIN. Ueberspringe.")
-                    continue
-                }
-
-                val eingegebenerPinHashMitSalt = hashPin(pin, fsUser.pinSalt)
-                if (eingegebenerPinHashMitSalt == fsUser.hashedPin) {
-                    foundMatchingUser = fsUser
-                    break // Passenden Benutzer gefunden
-                }
+            if (firestoreBenutzerId == null) {
+                Timber.w("$TAG: Anmeldung fehlgeschlagen: Benutzername oder PIN falsch (kein Benutzer gefunden).")
+                return false
             }
 
-            if (foundMatchingUser != null) {
-                Timber.d("$TAG: Anmeldung erfolgreich fuer Benutzer '${foundMatchingUser.benutzername}' (ID: ${foundMatchingUser.benutzerId}).")
+            // Schritt 2: Transaktion starten, um den Benutzer zu holen und zu aktualisieren
+            val transactionResult = firestore.runTransaction<BenutzerEntitaet?> { transaction ->
+                val benutzerRef = firestoreBenutzerCollection.document(firestoreBenutzerId)
+                val snapshot = transaction.get(benutzerRef)
+                val firestoreBenutzer = snapshot.toObject(BenutzerEntitaet::class.java)
 
-                // Lokale Datenbank bereinigen, um nur den aktuell angemeldeten Benutzer zu haben (Goldstandard)
+                if (firestoreBenutzer == null) {
+                    Timber.w("$TAG: Anmeldung fehlgeschlagen: Benutzer nicht in Transaktion gefunden.")
+                    return@runTransaction null
+                }
+
+                // PIN-Verifizierung mit dem Salt aus Firestore
+                val saltBytes = Base64.decode(firestoreBenutzer.pinSalt, Base64.NO_WRAP)
+                val isPinCorrect = hashPin(pin, saltBytes) == firestoreBenutzer.hashedPin
+
+                if (isPinCorrect) {
+                    val angemeldeterBenutzer = firestoreBenutzer.copy(
+                        istAngemeldet = true,
+                        istLokalGeaendert = true,
+                        zuletztGeaendert = Date()
+                    )
+                    transaction.set(benutzerRef, angemeldeterBenutzer.copy(istLokalGeaendert = false)) // Setzen in Firestore
+                    angemeldeterBenutzer // Rueckgabe fuer lokale Speicherung
+                } else {
+                    Timber.w("$TAG: Anmeldung fehlgeschlagen: PIN falsch.")
+                    null
+                }
+            }.await()
+
+            if (transactionResult != null) {
+                // Vor der Anmeldung alle anderen Benutzer abmelden und eigene Daten bereinigen
                 benutzerDao.deleteAllBenutzer()
-                // Den erfolgreich angemeldeten Benutzer lokal speichern
-                benutzerDao.benutzerEinfuegen(foundMatchingUser.copy(
-                    istLokalGeaendert = false, // Frisch von Firestore, also nicht lokal geaendert
-                    istLoeschungVorgemerkt = false // Frisch von Firestore, also nicht zur Loeschung vorgemerkt
-                ))
-                _aktuellerBenutzer.value = foundMatchingUser // Setze den aktuellen Benutzer im StateFlow
-                Timber.d("$TAG: Lokaler Benutzer auf '${foundMatchingUser.benutzername}' (ID: ${foundMatchingUser.benutzerId}) aktualisiert.")
+                Timber.d("$TAG: Lokale Benutzerdaten vor der Anmeldung bereinigt.")
 
-                // Nach erfolgreicher Anmeldung einen initialen Sync starten
-                syncBenutzerDaten() // Stellt sicher, dass das Profil konsistent ist
-                return true
+                benutzerDao.benutzerEinfuegen(transactionResult)
+                Timber.d("$TAG: Benutzer '${transactionResult.benutzername}' lokal angemeldet.")
+
+                _istAngemeldet.value = true
+
+                syncBenutzerDaten() // Starte Sync, um alle relevanten Daten zu holen
+
+                Timber.d("$TAG: Anmeldung fuer Benutzer '$benutzername' erfolgreich.")
+                true
             } else {
-                Timber.w("$TAG: Anmeldung fehlgeschlagen: Benutzername oder PIN falsch.")
-                return false // Keine Uebereinstimmung
+                false
             }
         } catch (e: Exception) {
-            Timber.e(e, "$TAG: FEHLER bei Firestore-Abfrage waehrend Anmeldung: ${e.message}")
-            return false
+            Timber.e(e, "$TAG: FEHLER bei der Anmeldung: ${e.message}")
+            false
         }
-    }
-
-
-    // --- Synchronisations-Operationen (Room <-> Firestore) ---
-
-    override suspend fun syncBenutzerDaten() {
-        Timber.d("$TAG: Starte manuelle Synchronisation der Benutzerdaten.")
-
-        if (!isOnline()) {
-            Timber.d("$TAG: Sync: Keine Internetverbindung fuer Synchronisation verfuegbar.")
-            // _uiEvent.emit("Fehler: Keine Internetverbindung fuer Synchronisation verfügbar.")
-            return
-        }
-
-        // Phase 1: PUSH (Locally deleted -> Firestore delete, Locally changed -> Firestore update/create)
-        Timber.d("$TAG: Sync: Starte PUSH-Phase.")
-
-        // A. Lokale Benutzer, die zur Loeschung vorgemerkt sind, aus Firestore entfernen
-        val benutzerFuerLoeschung = benutzerDao.getBenutzerFuerLoeschung()
-        for (benutzer in benutzerFuerLoeschung) {
-            try {
-                Timber.d("$TAG: Sync Push (Loeschung): Versuch Loeschung von Benutzer ${benutzer.benutzername} (ID: ${benutzer.benutzerId}) von Firestore.")
-                firestoreCollection.document(benutzer.benutzerId).delete().await()
-                Timber.d("$TAG: Sync Push (Loeschung): Benutzer ${benutzer.benutzername} von Firestore geloescht.")
-                benutzerDao.deleteBenutzerById(benutzer.benutzerId) // Endgueltig lokal loeschen
-                Timber.d("$TAG: Sync Push (Loeschung): Benutzer ${benutzer.benutzername} endgueltig lokal entfernt.")
-            } catch (e: Exception) {
-                Timber.e(e, "$TAG: Sync Push (Loeschung): FEHLER beim Loeschen von Benutzer ${benutzer.benutzername} (${benutzer.benutzerId}) aus Firestore: ${e.message}.")
-                // Im Fehlerfall den Benutzer lokal wieder als nicht zur Loeschung vorgemerkt markieren
-                // damit ein weiterer Versuch unternommen werden kann.
-                benutzerDao.benutzerAktualisieren(benutzer.copy(
-                    istLoeschungVorgemerkt = false,
-                    istLokalGeaendert = true, // Damit er erneut versucht wird zu syncen
-                    zuletztGeaendert = Date()
-                ))
-                // Optional: UI-Event ausloesen, dass Loeschung fehlgeschlagen ist.
-            }
-        }
-
-        // B. Lokale Benutzer, die geaendert, aber NICHT zur Loeschung vorgemerkt sind, zu Firestore hochladen
-        val unsynchronisierteBenutzer = benutzerDao.getUnsynchronisierteBenutzer()
-        for (benutzer in unsynchronisierteBenutzer) {
-            val benutzerFuerFirestore = benutzer.copy(
-                istLokalGeaendert = false, // Setzen auf false fuer Firestore-Objekt
-                istLoeschungVorgemerkt = false // Sicherstellen, dass dies auch false ist
-            )
-            try {
-                Timber.d("$TAG: Sync Push (Update/Create): Lade Benutzer zu Firestore hoch/aktualisiere: ${benutzer.benutzername} (ID: ${benutzer.benutzerId}).")
-                firestoreCollection.document(benutzer.benutzerId).set(benutzerFuerFirestore).await()
-                // Lokal den Status der Flags aktualisieren
-                benutzerDao.benutzerAktualisieren(benutzer.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
-                // Wenn es der aktuell angemeldete Benutzer ist, StateFlow aktualisieren
-                if (_aktuellerBenutzer.value?.benutzerId == benutzer.benutzerId) {
-                    _aktuellerBenutzer.value = benutzer.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false)
-                }
-                Timber.d("$TAG: Sync Push (Update/Create): Benutzer ${benutzer.benutzername} erfolgreich mit Firestore synchronisiert (Upload).")
-            } catch (e: Exception) {
-                Timber.e(e, "$TAG: Sync Push (Update/Create): FEHLER beim Hochladen von Benutzer ${benutzer.benutzername} (${benutzer.benutzerId}) zu Firestore: ${e.message}.")
-                // Im Fehlerfall bleibt istLokalGeaendert auf true, damit ein weiterer Versuch unternommen wird.
-                // Optional: UI-Event ausloesen, dass Upload fehlgeschlagen ist.
-            }
-        }
-        Timber.d("$TAG: Sync: PUSH-Phase abgeschlossen.")
-
-
-        // Phase 2: PULL (Firestore -> Room) - Nur den aktuell angemeldeten Benutzer pullen
-        Timber.d("$TAG: Sync: Starte PULL-Phase fuer den aktuellen Benutzer.")
-        performPullSync() // Diese Methode ist fuer den aktuell angemeldeten Benutzer optimiert.
-        Timber.d("$TAG: Sync: PULL-Phase abgeschlossen.")
-
-        Timber.d("$TAG: Manuelle Synchronisation der Benutzerdaten abgeschlossen.")
     }
 
     /**
-     * Fuehrt den Pull-Synchronisationsprozess fuer den aktuell angemeldeten Benutzer aus.
-     * Zieht nur das eigene Profil von Firestore und gleicht es mit der lokalen Room-Datenbank ab.
+     * Meldet den aktuell angemeldeten Benutzer ab.
+     * Setzt das 'istAngemeldet'-Flag lokal auf false und loescht alle relevanten Daten.
      */
-    private suspend fun performPullSync() {
-        Timber.d("$TAG: performPullSync aufgerufen fuer den aktuellen Benutzer.")
-        val aktuellerBenutzer = _aktuellerBenutzer.value
-        if (aktuellerBenutzer == null) {
-            Timber.d("$TAG: PullSync: Kein aktueller Benutzer angemeldet. Pull wird uebersprungen.")
+    override suspend fun abmelden() {
+        Timber.d("$TAG: Starte Abmeldung des Benutzers.")
+        try {
+            val aktuellerBenutzer = benutzerDao.getAktuellerAngemeldeterBenutzer().firstOrNull()
+            if (aktuellerBenutzer != null) {
+                // Setze istAngemeldet auf false und markiere als lokal geaendert
+                val abgemeldeterBenutzer = aktuellerBenutzer.copy(
+                    istAngemeldet = false,
+                    istLokalGeaendert = true,
+                    zuletztGeaendert = Date()
+                )
+                benutzerDao.benutzerAktualisieren(abgemeldeterBenutzer)
+                Timber.d("$TAG: Benutzer '${aktuellerBenutzer.benutzername}' lokal als abgemeldet markiert.")
+            }
+
+            // Loesche alle Benutzerdaten aus Room, um sicherzustellen, dass keine alten Daten verbleiben
+            benutzerDao.deleteAllBenutzer()
+            Timber.d("$TAG: Alle lokalen Benutzerdaten nach Abmeldung geloescht.")
+
+            _istAngemeldet.value = false
+            Timber.d("$TAG: Abmeldung erfolgreich abgeschlossen.")
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: FEHLER bei der Abmeldung: ${e.message}")
+        }
+    }
+
+    /**
+     * Speichert einen Benutzer in der lokalen Room-Datenbank und markiert ihn fuer die Synchronisation.
+     * Wenn der Benutzer bereits existiert, wird er aktualisiert.
+     *
+     * @param benutzer Der zu speichernde oder zu aktualisierende Benutzer.
+     */
+    override suspend fun benutzerSpeichern(benutzer: BenutzerEntitaet) {
+        Timber.d("$TAG: benutzerSpeichern: Versuche Benutzer zu speichern: ${benutzer.benutzername} (ID: ${benutzer.benutzerId})")
+        val benutzerMitFlags = benutzer.copy(
+            zuletztGeaendert = Date(),
+            istLokalGeaendert = true,
+            istLoeschungVorgemerkt = false
+        )
+        benutzerDao.benutzerEinfuegen(benutzerMitFlags)
+        Timber.d("$TAG: benutzerSpeichern: Benutzer ${benutzerMitFlags.benutzername} lokal gespeichert.")
+    }
+
+    /**
+     * Ruft einen einzelnen Benutzer anhand seiner eindeutigen ID aus der lokalen Datenbank ab.
+     *
+     * @param benutzerId Die ID des abzurufenden Benutzers (UUID).
+     * @return Ein Flow, das die Benutzer-Entitaet (oder null) emittiert.
+     */
+    override fun getBenutzerById(benutzerId: String): Flow<BenutzerEntitaet?> {
+        Timber.d("$TAG: getBenutzerById: Abrufen von Benutzer mit ID: $benutzerId")
+        return benutzerDao.getBenutzerById(benutzerId)
+    }
+
+    /**
+     * Ruft einen Benutzer anhand seines Benutzernamens ab.
+     *
+     * @param benutzername Der Benutzername des abzurufenden Benutzers.
+     * @return Ein Flow, das die Benutzer-Entitaet (oder null) emittiert, falls gefunden.
+     */
+    override fun getBenutzerByBenutzername(benutzername: String): Flow<BenutzerEntitaet?> {
+        Timber.d("$TAG: getBenutzerByBenutzername: Abrufen von Benutzer mit Benutzername: $benutzername")
+        return benutzerDao.getBenutzerByBenutzername(benutzername)
+    }
+
+    /**
+     * Ruft alle Benutzer ab, die nicht zur Loeschung vorgemerkt sind.
+     *
+     * @return Ein Flow, das eine Liste von Benutzer-Entitaeten emittiert.
+     */
+    override fun getAllBenutzer(): Flow<List<BenutzerEntitaet>> {
+        Timber.d("$TAG: getAllBenutzer: Abrufen aller Benutzer.")
+        return benutzerDao.getAllBenutzer()
+    }
+
+    /**
+     * Markiert einen Benutzer in der lokalen Datenbank zur Loeschung (Soft Delete).
+     * Setzt das "istLoeschungVorgemerkt"-Flag und markiert den Benutzer fuer die Synchronisation.
+     * Die tatsaechliche Loeschung in der Cloud und der lokalen Datenbank erfolgt erst nach der Synchronisation.
+     *
+     * @param benutzer Der Benutzer, der zur Loeschung vorgemerkt werden soll.
+     */
+    override suspend fun markBenutzerForDeletion(benutzer: BenutzerEntitaet) {
+        Timber.d("$TAG: markBenutzerForDeletion: Benutzer '${benutzer.benutzername}' (ID: ${benutzer.benutzerId}) zur Loeschung vorgemerkt.")
+        val benutzerZurLoeschung = benutzer.copy(
+            istLoeschungVorgemerkt = true,
+            istLokalGeaendert = true,
+            zuletztGeaendert = Date()
+        )
+        benutzerDao.benutzerAktualisieren(benutzerZurLoeschung)
+        Timber.d("$TAG: markBenutzerForDeletion: Benutzer ${benutzerZurLoeschung.benutzername} lokal zum Loeschen vorgemerkt.")
+    }
+
+    /**
+     * Loescht einen Benutzer endgueltig aus der lokalen Datenbank.
+     * Diese Methode wird typischerweise nur nach erfolgreicher Synchronisation der Loeschung
+     * mit der Cloud-Datenbank aufgerufen.
+     *
+     * @param benutzerId Die ID des endgueltig zu loeschenden Benutzers.
+     */
+    override suspend fun loescheBenutzer(benutzerId: String) {
+        Timber.d("$TAG: loescheBenutzer: Loesche Benutzer endgueltig mit ID: $benutzerId")
+        benutzerDao.deleteBenutzerById(benutzerId)
+        Timber.d("$TAG: loescheBenutzer: Benutzer mit ID $benutzerId endgueltig geloescht.")
+    }
+
+    /**
+     * Ruft den aktuell als angemeldet markierten Benutzer ab.
+     * Gibt einen Flow zurueck, der den Benutzer emittiert.
+     *
+     * @return Ein Flow, das den angemeldeten Benutzer (oder null) emittiert.
+     */
+    override fun getAktuellerBenutzer(): Flow<BenutzerEntitaet?> {
+        Timber.d("$TAG: getAktuellerBenutzer: Abrufen des aktuell angemeldeten Benutzers (Flow).")
+        return benutzerDao.getAktuellerAngemeldeterBenutzer()
+    }
+
+    /**
+     * Synchronisiert Benutzerdaten zwischen Room und Firestore.
+     * Pusht lokale Aenderungen des Hauptbenutzers und pulled den aktuellen
+     */
+    override suspend fun syncBenutzerDaten() {
+        if (!isOnline()) {
+            Timber.d("$TAG: Sync: Keine Internetverbindung, Synchronisation uebersprungen.")
             return
         }
 
-        try {
-            // Hole nur das Dokument des eigenen Benutzers von Firestore
-            val firestoreDocument = firestoreCollection.document(aktuellerBenutzer.benutzerId).get().await()
-            val firestoreBenutzer = firestoreDocument.toObject(BenutzerEntitaet::class.java)
+        Timber.d("$TAG: Starte Benutzer-Synchronisation...")
 
-            if (firestoreBenutzer == null) {
-                // Wenn das eigene Profil in Firestore nicht mehr existiert (z.B. manuell geloescht)
-                Timber.w("$TAG: Sync Pull: Aktueller Benutzer '${aktuellerBenutzer.benutzername}' (ID: ${aktuellerBenutzer.benutzerId}) nicht mehr in Firestore gefunden. Lokaler Benutzer wird entfernt.")
-                benutzerDao.deleteBenutzerById(aktuellerBenutzer.benutzerId)
-                _aktuellerBenutzer.value = null
-                return
+        // PULL: Zuerst den aktuellen Benutzer von Firestore holen, falls angemeldet
+        val aktuellerAngemeldeterBenutzer = benutzerDao.getAktuellerAngemeldeterBenutzer().firstOrNull()
+        val firestoreBenutzerDocument = aktuellerAngemeldeterBenutzer?.let {
+            try {
+                firestoreBenutzerCollection.document(it.benutzerId).get().await()
+            } catch (e: Exception) {
+                Timber.e(e, "$TAG: FEHLER beim Abrufen des aktuellen Benutzers von Firestore: ${e.message}")
+                null
             }
-
-            // Last-Write-Wins Logik fuer den eigenen Benutzer
-            val localBenutzer = benutzerDao.getBenutzerById(aktuellerBenutzer.benutzerId).firstOrNull()
-
-            if (localBenutzer == null) {
-                // Dieser Fall sollte nach der Registrierung/Anmeldung nicht auftreten,
-                // da der Benutzer immer lokal gespeichert wird. Aber zur Sicherheit.
-                val newBenutzerInRoom = firestoreBenutzer.copy(
-                    istLokalGeaendert = false,
-                    istLoeschungVorgemerkt = false
-                )
-                benutzerDao.benutzerEinfuegen(newBenutzerInRoom)
-                _aktuellerBenutzer.value = newBenutzerInRoom
-                Timber.d("$TAG: Sync Pull: Eigener Benutzer ${newBenutzerInRoom.benutzername} von Firestore in Room HINZUGEFUEGT (war lokal nicht vorhanden).")
-            } else {
-                // Konfliktloesung fuer den eigenen Benutzer:
-                // Wenn lokal geaendert, hat lokal Vorrang fuer den Push (dieser sollte bereits in der Push-Phase behandelt worden sein)
-                // Hier geht es nur darum, ob der Firestore-Timestamp neuer ist und wir die lokale Version NICHT geaendert haben.
-                val firestoreTimestamp = firestoreBenutzer.zuletztGeaendert ?: firestoreBenutzer.erstellungszeitpunkt
-                val localTimestamp = localBenutzer.zuletztGeaendert ?: localBenutzer.erstellungszeitpunkt
-
-                // Sicherer Vergleich der Zeitstempel
-                val isFirestoreNewer = if (firestoreTimestamp == null && localTimestamp == null) {
-                    false // Beide null, keine Aenderung
-                } else if (firestoreTimestamp != null && localTimestamp == null) {
-                    true // Firestore hat Timestamp, lokal nicht
-                } else if (localTimestamp != null && firestoreTimestamp == null) {
-                    false // Lokal hat Timestamp, Firestore nicht
-                } else {
-                    firestoreTimestamp!!.after(localTimestamp!!) // Beide nicht null, sicher vergleichen
-                }
-
-                if (isFirestoreNewer) {
-                    // Wenn Firestore neuer ist, uebernehmen wir die Firestore-Version
-                    val updatedBenutzer = firestoreBenutzer.copy(
-                        istLokalGeaendert = false, // Reset Flag nach Pull
-                        istLoeschungVorgemerkt = false // Reset Flag nach Pull
-                    )
-                    benutzerDao.benutzerEinfuegen(updatedBenutzer) // Verwendet insert (onConflict = REPLACE) zum Aktualisieren
-                    _aktuellerBenutzer.value = updatedBenutzer // StateFlow aktualisieren
-                    Timber.d("$TAG: Sync Pull: Eigener Benutzer ${updatedBenutzer.benutzername} von Firestore in Room AKTUALISIERT (Firestore neuer).")
-                } else {
-                    Timber.d("$TAG: Sync Pull: Eigener Benutzer ${localBenutzer.benutzername} (ID: ${localBenutzer.benutzerId}) ist aktueller oder gleich. KEINE AKTUALISIERUNG durch Pull.")
-                }
-            }
-            Timber.d("$TAG: Sync Pull: Pull-Synchronisation des eigenen Benutzerprofils abgeschlossen.")
-        } catch (e: Exception) {
-            Timber.e(e, "$TAG: Sync Pull: FEHLER beim Herunterladen und Synchronisieren des eigenen Benutzerprofils von Firestore: ${e.message}")
         }
+        val cloudBenutzer = firestoreBenutzerDocument?.toObject(BenutzerEntitaet::class.java)
+
+        if (aktuellerAngemeldeterBenutzer != null && cloudBenutzer != null) {
+            val localTimestamp = aktuellerAngemeldeterBenutzer.zuletztGeaendert ?: aktuellerAngemeldeterBenutzer.erstellungszeitpunkt
+            val cloudTimestamp = cloudBenutzer.zuletztGeaendert ?: cloudBenutzer.erstellungszeitpunkt
+
+            val isCloudNewer = when {
+                cloudTimestamp == null && localTimestamp == null -> false
+                cloudTimestamp != null && localTimestamp == null -> true
+                localTimestamp != null && cloudTimestamp == null -> false
+                else -> cloudTimestamp!!.after(localTimestamp!!)
+            }
+
+            if (aktuellerAngemeldeterBenutzer.istLokalGeaendert) {
+                if (isCloudNewer) {
+                    // Konflikt: Cloud ist neuer, lokale Aenderung wird ueberschrieben
+                    benutzerDao.benutzerEinfuegen(cloudBenutzer.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                    Timber.d("$TAG: Sync: Konflikt geloest (Cloud ist neuer). Benutzer '${cloudBenutzer.benutzername}' von Firestore gepullt.")
+                } else {
+                    // Lokale Aenderung ist neuer oder gleich, push zu Firestore
+                    try {
+                        firestoreBenutzerCollection.document(aktuellerAngemeldeterBenutzer.benutzerId).set(aktuellerAngemeldeterBenutzer.copy(istLokalGeaendert = false)).await()
+                        benutzerDao.benutzerAktualisieren(aktuellerAngemeldeterBenutzer.copy(istLokalGeaendert = false))
+                        Timber.d("$TAG: Sync: Lokale Aenderung gepusht. Benutzer '${aktuellerAngemeldeterBenutzer.benutzername}' zu Firestore hochgeladen.")
+                    } catch (e: Exception) {
+                        Timber.e(e, "$TAG: FEHLER beim Pushen des Benutzers zu Firestore: ${e.message}")
+                    }
+                }
+            } else if (isCloudNewer) {
+                // Keine lokale Aenderung, Cloud ist neuer, einfach pullen
+                benutzerDao.benutzerEinfuegen(cloudBenutzer.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
+                Timber.d("$TAG: Sync: Benutzer '${cloudBenutzer.benutzername}' von Firestore gepullt (Cloud war neuer).")
+            } else {
+                Timber.d("$TAG: Sync: Benutzer '${aktuellerAngemeldeterBenutzer.benutzername}' ist aktuell (lokal und Cloud gleich).")
+            }
+        } else if (aktuellerAngemeldeterBenutzer != null && cloudBenutzer == null) {
+            // Lokaler Benutzer ist angemeldet, aber nicht in Firestore gefunden (geloescht oder nie gepusht)
+            if (aktuellerAngemeldeterBenutzer.istLokalGeaendert) {
+                // Wenn lokal geaendert, versuchen zu pushen (z.B. neue Registrierung, die noch nicht hochgeladen wurde)
+                try {
+                    firestoreBenutzerCollection.document(aktuellerAngemeldeterBenutzer.benutzerId).set(aktuellerAngemeldeterBenutzer.copy(istLokalGeaendert = false)).await()
+                    benutzerDao.benutzerAktualisieren(aktuellerAngemeldeterBenutzer.copy(istLokalGeaendert = false))
+                    Timber.d("$TAG: Sync: Angemeldeter Benutzer '${aktuellerAngemeldeterBenutzer.benutzername}' nicht in Firestore gefunden, lokal geaendert, daher gepusht.")
+                } catch (e: Exception) {
+                    Timber.e(e, "$TAG: FEHLER beim Pushen des angemeldeten Benutzers zu Firestore: ${e.message}")
+                }
+            } else {
+                // Lokaler Benutzer ist nicht geaendert und nicht in Firestore, also lokal loeschen (wurde woanders geloescht)
+                benutzerDao.deleteBenutzerById(aktuellerAngemeldeterBenutzer.benutzerId)
+                Timber.d("$TAG: Sync: Angemeldeter Benutzer '${aktuellerAngemeldeterBenutzer.benutzername}' nicht in Firestore gefunden und nicht lokal geaendert, lokal geloescht.")
+                _istAngemeldet.value = false // Benutzer ist nicht mehr angemeldet
+            }
+        } else if (aktuellerAngemeldeterBenutzer == null && cloudBenutzer != null) {
+            // Cloud-Benutzer existiert, aber lokal ist niemand angemeldet (sollte nicht passieren, wenn sync nur fuer angemeldeten Benutzer laeuft)
+            Timber.w("$TAG: Sync: Cloud-Benutzer '${cloudBenutzer.benutzername}' existiert, aber kein lokaler angemeldeter Benutzer. Uebersprungen.")
+        } else {
+            Timber.d("$TAG: Sync: Kein angemeldeter Benutzer, kein Cloud-Benutzer zu synchronisieren.")
+        }
+
+
+        // --- Synchronisation von anderen Benutzerprofilen (Pull) ---
+        val lokaleBenutzerFuerPush = benutzerDao.getUnsynchronisierteBenutzer()
+        val lokaleBenutzerFuerLoeschung = benutzerDao.getBenutzerFuerLoeschung()
+        val alleLokalenBenutzerIds = benutzerDao.getAllBenutzerIncludingMarkedForDeletion().map { it.benutzerId }.toSet()
+
+        Timber.d("$TAG: Sync: ${lokaleBenutzerFuerPush.size} Benutzer zum Pushen, ${lokaleBenutzerFuerLoeschung.size} Benutzer zum Loeschen.")
+
+        // PUSH: Lokale Aenderungen zu Firestore (fuer andere Benutzerprofile)
+        for (lokalerBenutzer in lokaleBenutzerFuerPush) {
+            if (lokalerBenutzer.benutzerId == aktuellerAngemeldeterBenutzer?.benutzerId) {
+                // Hauptbenutzer wurde bereits oben behandelt
+                continue
+            }
+            try {
+                firestoreBenutzerCollection.document(lokalerBenutzer.benutzerId).set(lokalerBenutzer.copy(istLokalGeaendert = false)).await()
+                benutzerDao.benutzerAktualisieren(lokalerBenutzer.copy(istLokalGeaendert = false))
+                Timber.d("$TAG: Sync Push: Benutzer '${lokalerBenutzer.benutzername}' (ID: ${lokalerBenutzer.benutzerId}) zu Firestore hochgeladen/aktualisiert.")
+            } catch (e: Exception) {
+                Timber.e(e, "$TAG: Sync Push: FEHLER beim Hochladen von Benutzer '${lokalerBenutzer.benutzername}' (ID: ${lokalerBenutzer.benutzerId}) zu Firestore: ${e.message}")
+            }
+        }
+
+        // PUSH: Lokale Loeschungen zu Firestore
+        for (lokalerBenutzer in lokaleBenutzerFuerLoeschung) {
+            if (lokalerBenutzer.benutzerId == aktuellerAngemeldeterBenutzer?.benutzerId) {
+                // Hauptbenutzer wurde bereits oben behandelt
+                continue
+            }
+            try {
+                firestoreBenutzerCollection.document(lokalerBenutzer.benutzerId).delete().await()
+                benutzerDao.deleteBenutzerById(lokalerBenutzer.benutzerId)
+                Timber.d("$TAG: Sync Push: Benutzer '${lokalerBenutzer.benutzername}' (ID: ${lokalerBenutzer.benutzerId}) aus Firestore GELÖSCHT (zur Loeschung vorgemerkt).")
+            } catch (e: Exception) {
+                Timber.e(e, "$TAG: Sync Push: FEHLER beim Loeschen von Benutzer '${lokalerBenutzer.benutzerId}' aus Firestore: ${e.message}")
+            }
+        }
+
+        // PULL: Andere Benutzerprofile von Firestore herunterladen
+        val alleCloudBenutzerIds = mutableSetOf<String>()
+        try {
+            val relevantFirestoreBenutzerSnapshot = firestoreBenutzerCollection.get().await()
+            val relevantFirestoreBenutzer = relevantFirestoreBenutzerSnapshot.toObjects(BenutzerEntitaet::class.java)
+            alleCloudBenutzerIds.addAll(relevantFirestoreBenutzer.map { it.benutzerId })
+            Timber.d("$TAG: Sync Pull: ${relevantFirestoreBenutzer.size} relevante Benutzerprofile von Firestore heruntergeladen.")
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: FEHLER beim Abrufen relevanter Benutzerprofile von Firestore: ${e.message}")
+        }
+
+        val lokaleBenutzerFuerCleanUp = benutzerDao.getAllBenutzerIncludingMarkedForDeletion()
+        for (lokalerBenutzer in lokaleBenutzerFuerCleanUp) {
+            // Den aktuell angemeldeten Benutzer nie loeschen, es sei denn, er wurde explizit abgemeldet
+            if (lokalerBenutzer.benutzerId == aktuellerAngemeldeterBenutzer?.benutzerId) {
+                continue
+            }
+
+            val shouldDeleteLocal = !alleCloudBenutzerIds.contains(lokalerBenutzer.benutzerId) &&
+                    !lokalerBenutzer.istLoeschungVorgemerkt &&
+                    !lokalerBenutzer.istLokalGeaendert
+
+            if (shouldDeleteLocal) {
+                benutzerDao.deleteBenutzerById(lokalerBenutzer.benutzerId)
+                Timber.d("$TAG: Sync Pull: Lokaler Benutzer '${lokalerBenutzer.benutzername}' (ID: ${lokalerBenutzer.benutzerId}) GELÖSCHT, da nicht mehr in Firestore und lokal synchronisiert war.")
+            } else {
+                Timber.d("$TAG: Sync Pull: Lokaler Benutzer '${lokalerBenutzer.benutzername}' (ID: ${lokalerBenutzer.benutzerId}) BLEIBT LOKAL (Grund: ${if(lokalerBenutzer.istLokalGeaendert) "lokal geaendert" else if (lokalerBenutzer.istLoeschungVorgemerkt) "zur Loeschung vorgemerkt" else "in Firestore gefunden."}).")
+            }
+        }
+        Timber.d("$TAG: Sync: Benutzer-Synchronisation abgeschlossen.")
+    }
+
+    /**
+     * Migriert alle anonymen Benutzer (erstellerId = null) zum angegebenen Benutzer.
+     * Die Primärschlüssel der Benutzer bleiben dabei unverändert.
+     * HINWEIS: Diese Methode ist hier fuer die Konsistenz, aber Benutzer haben keinen 'erstellerId'.
+     * Sie ist eher fuer Entitaeten wie Einkaufslisten relevant.
+     *
+     * @param neuerBenutzerId Die ID des Benutzers, dem die anonymen Benutzer zugeordnet werden sollen.
+     */
+    override suspend fun migriereAnonymeBenutzer(neuerBenutzerId: String) {
+        Timber.w("$TAG: migriereAnonymeBenutzer aufgerufen. Diese Methode ist fuer Benutzer-Entitaeten nicht direkt anwendbar, da Benutzer keine 'erstellerId' haben. Sie ist fuer andere Entitaeten gedacht.")
+        // In der Benutzer-Entitaet gibt es keine "erstellerId".
+        // Anonyme Benutzer werden bei der Registrierung zu "echten" Benutzern.
+        // Diese Methode ist eher ein Platzhalter oder fuer andere Entitaeten gedacht.
+    }
+
+    /**
+     * Ruft eine Liste von Benutzerprofilen von Firestore ab, basierend auf einer Liste von Benutzer-IDs.
+     * Verwendet `whereIn` fuer effiziente Abfragen.
+     *
+     * @param benutzerIds Die Liste der IDs der abzurufenden Benutzer.
+     * @return Eine Liste von BenutzerEntitaet-Objekten.
+     */
+    override suspend fun getBenutzerProfileFromFirestore(benutzerIds: List<String>): List<BenutzerEntitaet> {
+        Timber.d("$TAG: getBenutzerProfileFromFirestore: Abrufen von ${benutzerIds.size} Benutzerprofilen von Firestore.")
+        if (benutzerIds.isEmpty()) {
+            return emptyList()
+        }
+        val fetchedProfiles = mutableListOf<BenutzerEntitaet>()
+        try {
+            // Firestore unterstuetzt whereIn mit FieldPath.documentId() fuer bis zu 10 IDs pro Abfrage.
+            // Daher muessen wir die IDs in Chunks aufteilen.
+            benutzerIds.distinct().chunked(10).forEach { chunk ->
+                val querySnapshot = firestoreBenutzerCollection
+                    .whereIn(FieldPath.documentId(), chunk)
+                    .get().await()
+                fetchedProfiles.addAll(querySnapshot.toObjects(BenutzerEntitaet::class.java))
+            }
+            Timber.d("$TAG: getBenutzerProfileFromFirestore: ${fetchedProfiles.size} Profile von Firestore abgerufen fuer ${benutzerIds.size} angefragte IDs.")
+        } catch (e: Exception) {
+            Timber.e(e, "$TAG: FEHLER beim Abrufen von Benutzerprofilen von Firestore: ${e.message}")
+        }
+        return fetchedProfiles
     }
 
 

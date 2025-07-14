@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/ProduktGeschaeftVerbindungTestScreen.kt
-// Stand: 2025-06-24_04:10:00, Codezeilen: ~320 (RoundedCornerShape Import hinzugefuegt)
+// Stand: 2025-07-08_20:30:00, Codezeilen: ~320 (Ohne Scaffold, empfaengt PaddingValues)
 
 package com.MaFiSoft.BuyPal.ui.screens
 
@@ -42,6 +42,7 @@ import java.util.Date
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProduktGeschaeftVerbindungTestScreen(
+    paddingValues: PaddingValues, // NEU: PaddingValues vom globalen Scaffold
     produktViewModel: ProduktViewModel = hiltViewModel(),
     geschaeftViewModel: GeschaeftViewModel = hiltViewModel(),
     produktGeschaeftVerbindungViewModel: ProduktGeschaeftVerbindungViewModel = hiltViewModel(),
@@ -97,228 +98,276 @@ fun ProduktGeschaeftVerbindungTestScreen(
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text("Produkt-Geschaeft-Verbindungen Test") },
-                actions = {
-                    IconButton(onClick = {
-                        coroutineScope.launch {
-                            produktGeschaeftVerbindungViewModel.syncVerbindungenDaten()
-                        }
-                    }) {
-                        Icon(Icons.Filled.Refresh, "Synchronisieren")
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues) // Padding vom globalen Scaffold anwenden
+            .padding(16.dp) // Zusaetzliches Padding fuer den Inhalt
+    ) {
+        TopAppBar( // TopAppBar bleibt hier
+            title = { Text("Produkt-Geschaeft-Verbindungen Test") },
+            actions = {
+                IconButton(onClick = {
+                    coroutineScope.launch {
+                        produktGeschaeftVerbindungViewModel.syncVerbindungenDaten()
+                    }
+                }) {
+                    Icon(Icons.Filled.Refresh, "Synchronisieren")
+                }
+            }
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text("Produkt-Geschaeft-Verbindungsverwaltung", style = MaterialTheme.typography.headlineSmall)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = alleProdukte.find { it.produktId == ausgewaehltesProduktId }?.name ?: "Produkt auswählen",
+                onValueChange = { },
+                label = { Text("Produkt") },
+                readOnly = true,
+                trailingIcon = {
+                    Icon(
+                        if (produktDropdownExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Dropdown-Pfeil",
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { /* optional: handle focus for visual feedback */ }
+                    .border(
+                        width = 1.dp,
+                        color = Color.LightGray,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .clickable { produktDropdownExpanded = !produktDropdownExpanded },
+                shape = RoundedCornerShape(8.dp),
+                colors = TextFieldDefaults.outlinedTextFieldColors(
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                    containerColor = Color.White
+                )
+            )
+
+            DropdownMenu(
+                expanded = produktDropdownExpanded,
+                onDismissRequest = { produktDropdownExpanded = false },
+                modifier = Modifier.fillMaxWidth(0.9f)
+            ) {
+                if (alleProdukte.isEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("Keine Produkte verfuegbar. Bitte zuerst Produkte erstellen.") },
+                        onClick = { /* Nichts tun */ }
+                    )
+                } else {
+                    alleProdukte.forEach { produkt ->
+                        DropdownMenuItem(
+                            text = { Text(produkt.name) },
+                            onClick = {
+                                ausgewaehltesProduktId = produkt.produktId
+                                produktDropdownExpanded = false
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Produkt '${produkt.name}' ausgewaehlt.")
+                                }
+                                Timber.d("PGVTestScreen", "Produkt '${produkt.name}' (${produkt.produktId}) im Dropdown ausgewaehlt.")
+                            }
+                        )
                     }
                 }
-            )
+            }
         }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp)
-        ) {
-            Text("Produkt-Geschaeft-Verbindungsverwaltung", style = MaterialTheme.typography.headlineSmall)
-            Spacer(modifier = Modifier.height(16.dp))
 
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = alleProdukte.find { it.produktId == ausgewaehltesProduktId }?.name ?: "Produkt auswählen",
-                    onValueChange = { },
-                    label = { Text("Produkt") },
-                    readOnly = true,
-                    trailingIcon = {
-                        Icon(
-                            if (produktDropdownExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Dropdown-Pfeil",
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (bearbeiteVerbindung != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .background(
+                        color = Color(0xFFE3F2FD),
+                        shape = RoundedCornerShape(8.dp)
+                    ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Verbindungsdetails bearbeiten:", style = MaterialTheme.typography.titleSmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Produkt: ${alleProdukte.find { it.produktId == bearbeiteVerbindung?.produktId }?.name ?: "N/A"}")
+                    Text("Geschaeft: ${alleGeschaefte.find { it.geschaeftId == bearbeiteVerbindung?.geschaeftId }?.name ?: "N/A"}")
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = bearbeitePreis,
+                        onValueChange = { bearbeitePreis = it },
+                        label = { Text("Preis (optional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = TextFieldDefaults.outlinedTextFieldColors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.LightGray,
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                            containerColor = Color.White
                         )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { /* optional: handle focus for visual feedback */ }
-                        .border(
-                            width = 1.dp,
-                            color = Color.LightGray,
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        .clickable { produktDropdownExpanded = !produktDropdownExpanded },
-                    shape = RoundedCornerShape(8.dp),
-                    colors = TextFieldDefaults.outlinedTextFieldColors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                        cursorColor = MaterialTheme.colorScheme.primary,
-                        containerColor = Color.White
                     )
-                )
-
-                DropdownMenu(
-                    expanded = produktDropdownExpanded,
-                    onDismissRequest = { produktDropdownExpanded = false },
-                    modifier = Modifier.fillMaxWidth(0.9f)
-                ) {
-                    if (alleProdukte.isEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("Keine Produkte verfuegbar. Bitte zuerst Produkte erstellen.") },
-                            onClick = { /* Nichts tun */ }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = bearbeiteWaehrung,
+                        onValueChange = { bearbeiteWaehrung = it },
+                        label = { Text("Waehrung (optional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = TextFieldDefaults.outlinedTextFieldColors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.LightGray,
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                            containerColor = Color.White
                         )
-                    } else {
-                        alleProdukte.forEach { produkt ->
-                            DropdownMenuItem(
-                                text = { Text(produkt.name) },
-                                onClick = {
-                                    ausgewaehltesProduktId = produkt.produktId
-                                    produktDropdownExpanded = false
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Produkt '${produkt.name}' ausgewaehlt.")
-                                    }
-                                    Timber.d("PGVTestScreen", "Produkt '${produkt.name}' (${produkt.produktId}) im Dropdown ausgewaehlt.")
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = bearbeiteNotizen,
+                        onValueChange = { bearbeiteNotizen = it },
+                        label = { Text("Notizen (optional)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = TextFieldDefaults.outlinedTextFieldColors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.LightGray,
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                            containerColor = Color.White
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val updatedVerbindung = bearbeiteVerbindung!!.copy(
+                                        preis = bearbeitePreis.toDoubleOrNull(),
+                                        waehrung = bearbeiteWaehrung.takeIf { it.isNotBlank() },
+                                        notizen = bearbeiteNotizen.takeIf { it.isNotBlank() },
+                                        erstellerId = aktuellerBenutzerId
+                                    )
+                                    produktGeschaeftVerbindungViewModel.verbindungSpeichern(updatedVerbindung)
+                                    bearbeiteVerbindung = null
                                 }
-                            )
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Speichern")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                bearbeiteVerbindung = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Abbrechen")
                         }
                     }
                 }
             }
-
             Spacer(modifier = Modifier.height(16.dp))
+        }
 
-            if (bearbeiteVerbindung != null) {
+
+        Text("Verfuegbare Geschaefte zum Verknuepfen:", style = MaterialTheme.typography.headlineSmall)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+            items(alleGeschaefte, key = { it.geschaeftId }) { geschaeft ->
+                val istVerbunden = verbundeneGeschaeftIds.contains(geschaeft.geschaeftId)
+
+                val aktuelleVerbindung = if (ausgewaehltesProduktId != null) {
+                    alleProduktGeschaeftVerbindungen.find { verbindung ->
+                        verbindung.produktId == ausgewaehltesProduktId && verbindung.geschaeftId == geschaeft.geschaeftId
+                    }
+                } else {
+                    null
+                }
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp)
+                        .padding(vertical = 4.dp)
                         .background(
                             color = Color(0xFFE3F2FD),
                             shape = RoundedCornerShape(8.dp)
                         ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                    shape = RoundedCornerShape(8.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(8.dp) // KORRIGIERT: Tippfehler von 8.8.dp auf 8.dp
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Verbindungsdetails bearbeiten:", style = MaterialTheme.typography.titleSmall)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Produkt: ${alleProdukte.find { it.produktId == bearbeiteVerbindung?.produktId }?.name ?: "N/A"}")
-                        Text("Geschaeft: ${alleGeschaefte.find { it.geschaeftId == bearbeiteVerbindung?.geschaeftId }?.name ?: "N/A"}")
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedTextField(
-                            value = bearbeitePreis,
-                            onValueChange = { bearbeitePreis = it },
-                            label = { Text("Preis (optional)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = TextFieldDefaults.outlinedTextFieldColors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = Color.LightGray,
-                                cursorColor = MaterialTheme.colorScheme.primary,
-                                containerColor = Color.White
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = bearbeiteWaehrung,
-                            onValueChange = { bearbeiteWaehrung = it },
-                            label = { Text("Waehrung (optional)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = TextFieldDefaults.outlinedTextFieldColors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = Color.LightGray,
-                                cursorColor = MaterialTheme.colorScheme.primary,
-                                containerColor = Color.White
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = bearbeiteNotizen,
-                            onValueChange = { bearbeiteNotizen = it },
-                            label = { Text("Notizen (optional)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = TextFieldDefaults.outlinedTextFieldColors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = Color.LightGray,
-                                cursorColor = MaterialTheme.colorScheme.primary,
-                                containerColor = Color.White
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceAround
-                        ) {
-                            Button(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        val updatedVerbindung = bearbeiteVerbindung!!.copy(
-                                            preis = bearbeitePreis.toDoubleOrNull(),
-                                            waehrung = bearbeiteWaehrung.takeIf { it.isNotBlank() },
-                                            notizen = bearbeiteNotizen.takeIf { it.isNotBlank() },
-                                            erstellerId = aktuellerBenutzerId
-                                        )
-                                        produktGeschaeftVerbindungViewModel.verbindungSpeichern(updatedVerbindung)
-                                        bearbeiteVerbindung = null
-                                    }
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Speichern")
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Button(
-                                onClick = {
-                                    bearbeiteVerbindung = null
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Abbrechen")
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-
-            Text("Verfuegbare Geschaefte zum Verknuepfen:", style = MaterialTheme.typography.headlineSmall)
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                items(alleGeschaefte, key = { it.geschaeftId }) { geschaeft ->
-                    val istVerbunden = verbundeneGeschaeftIds.contains(geschaeft.geschaeftId)
-
-                    val aktuelleVerbindung = if (ausgewaehltesProduktId != null) {
-                        alleProduktGeschaeftVerbindungen.find { verbindung ->
-                            verbindung.produktId == ausgewaehltesProduktId && verbindung.geschaeftId == geschaeft.geschaeftId
-                        }
-                    } else {
-                        null
-                    }
-
-                    Card(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .background(
-                                color = Color(0xFFE3F2FD),
-                                shape = RoundedCornerShape(8.dp)
-                            ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        shape = RoundedCornerShape(8.dp) // KORRIGIERT: Tippfehler von 8.8.dp auf 8.dp
+                            .clickable(enabled = ausgewaehltesProduktId != null) {
+                                if (ausgewaehltesProduktId != null) {
+                                    handleVerbindungChange(
+                                        produktId = ausgewaehltesProduktId!!,
+                                        geschaeftId = geschaeft.geschaeftId,
+                                        erstellerId = aktuellerBenutzerId,
+                                        istVerbunden = !istVerbunden,
+                                        produktGeschaeftVerbindungViewModel = produktGeschaeftVerbindungViewModel,
+                                        scope = coroutineScope,
+                                        snackbarHostState = snackbarHostState
+                                    )
+                                } else {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Bitte zuerst ein Produkt auswählen.")
+                                    }
+                                }
+                            }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = ausgewaehltesProduktId != null) {
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Geschäft: ${geschaeft.name} (ID: ${geschaeft.geschaeftId})")
+                            geschaeft.adresse?.let { Text("Adresse: $it") }
+                            geschaeft.telefon?.let { Text("Telefon: $it") }
+                            geschaeft.email?.let { Text("Email: $it") }
+                            Text("Ersteller-ID: ${geschaeft.erstellerId}")
+                            Text("Lokal geändert: ${geschaeft.istLokalGeaendert}")
+                            Text("Zur Löschung vorgemerkt: ${geschaeft.istLoeschungVorgemerkt}")
+                            geschaeft.erstellungszeitpunkt?.let { Text("Erstellt: ${it}") }
+                            geschaeft.zuletztGeaendert?.let { Text("Zuletzt geändert: ${it}") }
+
+                            if (istVerbunden) {
+                                aktuelleVerbindung?.let { verbindung ->
+                                    Text("Verbindung Preis: ${verbindung.preis ?: "N/A"}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Verbindung Währung: ${verbindung.waehrung ?: "N/A"}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Verbindung Notizen: ${verbindung.notizen ?: "N/A"}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Verbindung Ersteller: ${verbindung.erstellerId}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Verbindung Lokal geändert: ${verbindung.istLokalGeaendert}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Verbindung Zur Löschung vorgemerkt: ${verbindung.istLoeschungVorgemerkt}", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+
+                        Column(
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            Checkbox(
+                                checked = istVerbunden,
+                                onCheckedChange = { istChecked ->
                                     if (ausgewaehltesProduktId != null) {
                                         handleVerbindungChange(
                                             produktId = ausgewaehltesProduktId!!,
                                             geschaeftId = geschaeft.geschaeftId,
                                             erstellerId = aktuellerBenutzerId,
-                                            istVerbunden = !istVerbunden,
+                                            istVerbunden = istChecked,
                                             produktGeschaeftVerbindungViewModel = produktGeschaeftVerbindungViewModel,
                                             scope = coroutineScope,
                                             snackbarHostState = snackbarHostState
@@ -328,88 +377,36 @@ fun ProduktGeschaeftVerbindungTestScreen(
                                             snackbarHostState.showSnackbar("Bitte zuerst ein Produkt auswählen.")
                                         }
                                     }
-                                }
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Geschäft: ${geschaeft.name} (ID: ${geschaeft.geschaeftId})")
-                                geschaeft.adresse?.let { Text("Adresse: $it") }
-                                geschaeft.telefon?.let { Text("Telefon: $it") }
-                                geschaeft.email?.let { Text("Email: $it") }
-                                Text("Ersteller-ID: ${geschaeft.erstellerId}")
-                                Text("Lokal geändert: ${geschaeft.istLokalGeaendert}")
-                                Text("Zur Löschung vorgemerkt: ${geschaeft.istLoeschungVorgemerkt}")
-                                geschaeft.erstellungszeitpunkt?.let { Text("Erstellt: ${it}") }
-                                geschaeft.zuletztGeaendert?.let { Text("Zuletzt geändert: ${it}") }
+                                },
+                                enabled = ausgewaehltesProduktId != null
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
 
-                                if (istVerbunden) {
-                                    aktuelleVerbindung?.let { verbindung ->
-                                        Text("Verbindung Preis: ${verbindung.preis ?: "N/A"}", style = MaterialTheme.typography.bodySmall)
-                                        Text("Verbindung Währung: ${verbindung.waehrung ?: "N/A"}", style = MaterialTheme.typography.bodySmall)
-                                        Text("Verbindung Notizen: ${verbindung.notizen ?: "N/A"}", style = MaterialTheme.typography.bodySmall)
-                                        Text("Verbindung Ersteller: ${verbindung.erstellerId}", style = MaterialTheme.typography.bodySmall)
-                                        Text("Verbindung Lokal geändert: ${verbindung.istLokalGeaendert}", style = MaterialTheme.typography.bodySmall)
-                                        Text("Verbindung Zur Löschung vorgemerkt: ${verbindung.istLoeschungVorgemerkt}", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                            }
-
-                            Column(
-                                horizontalAlignment = Alignment.End
-                            ) {
-                                Checkbox(
-                                    checked = istVerbunden,
-                                    onCheckedChange = { istChecked ->
-                                        if (ausgewaehltesProduktId != null) {
-                                            handleVerbindungChange(
-                                                produktId = ausgewaehltesProduktId!!,
-                                                geschaeftId = geschaeft.geschaeftId,
-                                                erstellerId = aktuellerBenutzerId,
-                                                istVerbunden = istChecked,
-                                                produktGeschaeftVerbindungViewModel = produktGeschaeftVerbindungViewModel,
-                                                scope = coroutineScope,
-                                                snackbarHostState = snackbarHostState
-                                            )
-                                        } else {
+                            if (istVerbunden && ausgewaehltesProduktId != null) {
+                                aktuelleVerbindung?.let { verbindung ->
+                                    IconButton(
+                                        onClick = {
+                                            bearbeiteVerbindung = verbindung
                                             coroutineScope.launch {
-                                                snackbarHostState.showSnackbar("Bitte zuerst ein Produkt auswählen.")
+                                                snackbarHostState.showSnackbar("Verbindung zum Bearbeiten geladen.")
                                             }
                                         }
-                                    },
-                                    enabled = ausgewaehltesProduktId != null
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
+                                    ) {
+                                        Icon(Icons.Default.Create, contentDescription = "Verbindung bearbeiten")
+                                    }
 
-                                if (istVerbunden && ausgewaehltesProduktId != null) {
-                                    aktuelleVerbindung?.let { verbindung ->
-                                        IconButton(
-                                            onClick = {
-                                                bearbeiteVerbindung = verbindung
-                                                coroutineScope.launch {
-                                                    snackbarHostState.showSnackbar("Verbindung zum Bearbeiten geladen.")
-                                                }
+                                    Button(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                produktGeschaeftVerbindungViewModel.verbindungZurLoeschungVormerken(
+                                                    verbindung.produktId,
+                                                    verbindung.geschaeftId
+                                                )
                                             }
-                                        ) {
-                                            Icon(Icons.Default.Create, contentDescription = "Verbindung bearbeiten")
-                                        }
-
-                                        Button(
-                                            onClick = {
-                                                coroutineScope.launch {
-                                                    produktGeschaeftVerbindungViewModel.verbindungZurLoeschungVormerken(
-                                                        verbindung.produktId,
-                                                        verbindung.geschaeftId
-                                                    )
-                                                }
-                                            },
-                                            enabled = !verbindung.istLoeschungVorgemerkt
-                                        ) {
-                                            Text("Loeschen")
-                                        }
+                                        },
+                                        enabled = !verbindung.istLoeschungVorgemerkt
+                                    ) {
+                                        Text("Loeschen")
                                     }
                                 }
                             }

@@ -1,14 +1,14 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/presentation/viewmodel/SyncViewModel.kt
-// Stand: 2025-06-24_03:10:00, Codezeilen: ~45 (UI-Events hinzugefuegt)
+// Stand: 2025-07-06_23:50:00, Codezeilen: ~45 (Korrektur: SyncManager-Aufruf von startFullSync zu triggerFullSync)
 
 package com.MaFiSoft.BuyPal.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.MaFiSoft.BuyPal.sync.SyncManager
+import com.MaFiSoft.BuyPal.sync.SyncManager // Import für SyncManager
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableSharedFlow // NEU: Fuer UI-Events
-import kotlinx.coroutines.flow.asSharedFlow // NEU: Fuer UI-Events
+import kotlinx.coroutines.flow.MutableSharedFlow // Fuer UI-Events
+import kotlinx.coroutines.flow.asSharedFlow // Fuer UI-Events
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -37,7 +37,7 @@ class SyncViewModel @Inject constructor(
             Timber.d("$TAG: Manuelle volle Synchronisation ausgeloest.")
             _uiEvent.emit("Synchronisation gestartet...") // UI-Feedback: Sync beginnt
             try {
-                syncManager.startFullSync()
+                syncManager.triggerFullSync() // KORREKTUR: Aufruf der Methode auf triggerFullSync() geändert
                 Timber.d("$TAG: Manuelle volle Synchronisation abgeschlossen.")
                 _uiEvent.emit("Synchronisation abgeschlossen.") // UI-Feedback: Sync erfolgreich
             } catch (e: Exception) {

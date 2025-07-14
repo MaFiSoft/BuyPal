@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/ArtikelRepository.kt
-// Stand: 2025-06-27_12:07:00, Codezeilen: ~45 (Hinzugefuegt: isArtikelPrivateAndOwnedBy)
+// Stand: 2025-07-06_08:25:00, Codezeilen: ~45 (isArtikelLinkedToRelevantGroup Signatur angepasst)
 
 package com.MaFiSoft.BuyPal.repository
 
@@ -33,14 +33,14 @@ interface ArtikelRepository {
 
 
     /**
-     * NEU: Bestimmt, ob ein Artikel mit einer der relevanten Gruppen des Benutzers verknuepft ist.
-     * Dies ist ein kaskadierender Check: Artikel -> Einkaufsliste -> Gruppe.
+     * NEU: Bestimmt, ob ein Artikel mit einer der relevanten Einkaufslisten des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Artikel -> Einkaufsliste.
      *
      * @param artikelId Die ID des zu pruefenden Artikels.
-     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
-     * @return True, wenn der Artikel mit einer relevanten Gruppe verknuepft ist, sonst False.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn der Artikel mit einer relevanten Einkaufsliste verknuepft ist, sonst False.
      */
-    suspend fun isArtikelLinkedToRelevantGroup(artikelId: String, meineGruppenIds: List<String>): Boolean
+    suspend fun isArtikelLinkedToRelevantGroup(artikelId: String, aktuellerBenutzerId: String): Boolean
 
     /**
      * NEU: Prueft, ob ein Artikel in einer privaten (nicht-Gruppen-) Einkaufsliste des aktuellen Benutzers verwendet wird.

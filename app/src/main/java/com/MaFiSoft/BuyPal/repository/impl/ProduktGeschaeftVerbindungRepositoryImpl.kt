@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/ProduktGeschaeftVerbindungRepositoryImpl.kt
-// Stand: 2025-06-27_12:28:01, Codezeilen: ~680 (Hinzugefuegt: isProduktGeschaeftVerbindungPrivateAndOwnedBy, Pull-Sync-Logik angepasst)
+// Stand: 2025-07-06_07:42:00, Codezeilen: ~680 (GruppeRepository-Abhaengigkeit entfernt)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
@@ -10,7 +10,6 @@ import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungDao
 import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungEntitaet
 import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
-import com.MaFiSoft.BuyPal.repository.GruppeRepository
 import com.MaFiSoft.BuyPal.repository.ProduktRepository
 import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
 import com.MaFiSoft.BuyPal.repository.ArtikelRepository
@@ -40,7 +39,7 @@ import javax.inject.Singleton
 class ProduktGeschaeftVerbindungRepositoryImpl @Inject constructor(
     private val produktGeschaeftVerbindungDao: ProduktGeschaeftVerbindungDao,
     private val benutzerRepositoryProvider: Provider<BenutzerRepository>,
-    private val gruppeRepositoryProvider: Provider<GruppeRepository>,
+    // private val gruppeRepositoryProvider: Provider<GruppeRepository>, // ENTFERNT: GruppeRepository wird entfernt
     private val produktRepositoryProvider: Provider<ProduktRepository>,
     private val geschaeftRepositoryProvider: Provider<GeschaeftRepository>,
     private val artikelRepositoryProvider: Provider<ArtikelRepository>,
@@ -227,16 +226,16 @@ class ProduktGeschaeftVerbindungRepositoryImpl @Inject constructor(
             return
         }
 
-        val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
-            .firstOrNull()
-            ?.map { it.gruppeId }
-            ?: emptyList()
+        // Die Gruppen-IDs werden nicht mehr direkt hier geholt, da die Einkaufsliste die Gruppenlogik enthaelt.
+        // Stattdessen wird die Relevanz ueber die Einkaufsliste geprueft.
+        // Entfernen Sie die Zeile, die gruppeRepositoryProvider verwendet:
+        // val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId).firstOrNull()?.map { it.gruppeId } ?: emptyList()
 
         Timber.d("$TAG: Sync Push: Starte Push-Phase fuer Produkt-Geschaeft-Verbindungen.")
 
-        // Hilfsfunktion zur Bestimmung der Relevanz einer Verbindung für den Push basierend auf Gruppenzugehoerigkeit ODER privatem Besitz
+        // Hilfsfunktion zur Bestimmung der Relevanz einer Verbindung für den Push basierend auf privatem Besitz
         val isConnectionRelevantForPush: suspend (ProduktGeschaeftVerbindungEntitaet) -> Boolean = { verbindung ->
-            isVerbindungRelevantForSync(verbindung, aktuellerBenutzerId, meineGruppenIds)
+            isProduktGeschaeftVerbindungPrivateAndOwnedBy(verbindung.produktId, verbindung.geschaeftId, aktuellerBenutzerId)
         }
 
 
@@ -301,7 +300,7 @@ class ProduktGeschaeftVerbindungRepositoryImpl @Inject constructor(
     /**
      * Fuehrt den Pull-Synchronisationsprozess fuer Produkt-Geschaeft-Verbindungen aus.
      * Zieht Verbindungen von Firestore herunter, die mit Produkten oder Geschaeften verknuepft sind,
-     * welche wiederum fuer den aktuellen Benutzer aufgrund seiner Gruppenzugehoerigkeit oder privater Nutzung relevant sind.
+     * welche wiederum fuer den aktuellen Benutzer aufgrund seiner Einkaufslisten-Zugehoerigkeit oder privater Nutzung relevant sind.
      * Es wird NICHT mehr nach erstellerId der Verbindung gefiltert, sondern nach Relevanz des referenzierten Produkts/Geschaefts.
      */
     private suspend fun performPullSync() {
@@ -313,10 +312,8 @@ class ProduktGeschaeftVerbindungRepositoryImpl @Inject constructor(
                 return
             }
 
-            val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
-                .firstOrNull()
-                ?.map { it.gruppeId }
-                ?: emptyList()
+            // Entfernen Sie die Zeile, die gruppeRepositoryProvider verwendet:
+            // val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId).firstOrNull()?.map { it.gruppeId } ?: emptyList()
 
             // Benötigte Repository-Instanzen
             val produktRepo = produktRepositoryProvider.get()
@@ -334,19 +331,16 @@ class ProduktGeschaeftVerbindungRepositoryImpl @Inject constructor(
             val relevantProduktIds = mutableSetOf<String>()
             val relevantGeschaeftIds = mutableSetOf<String>()
 
-            // 1.1 Finde alle Einkaufslisten, die zu meinen Gruppen gehoeren
-            for (gruppeId in meineGruppenIds) {
-                val einkaufslistenInGruppe = einkaufslisteRepo.getEinkaufslistenByGruppeIdSynchronous(gruppeId)
-                relevantEinkaufslistenIds.addAll(einkaufslistenInGruppe.map { it.einkaufslisteId })
-            }
+            // 1.1 Finde alle Einkaufslisten, die der Benutzer gehoert (oeffentliche und private)
+            val alleEinkaufslisten = einkaufslisteRepo.getAllEinkaufslisten().firstOrNull() ?: emptyList()
+            alleEinkaufslisten.filter {
+                // Einkaufsliste ist oeffentlich und Benutzer ist Mitglied ODER
+                // Einkaufsliste ist privat und Benutzer ist der Ersteller
+                (it.istOeffentlich && it.mitgliederIds.contains(aktuellerBenutzerId)) ||
+                        (!it.istOeffentlich && it.erstellerId == aktuellerBenutzerId)
+            }.map { it.einkaufslisteId }.let { relevantEinkaufslistenIds.addAll(it) }
 
-            // 1.2 Finde alle privaten Einkaufslisten des aktuellen Benutzers
-            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslisten().firstOrNull() ?: emptyList()
-            privateEinkaufslisten.filter { it.erstellerId == aktuellerBenutzerId && it.gruppeId == null }
-                .map { it.einkaufslisteId }
-                .let { relevantEinkaufslistenIds.addAll(it) }
-
-            // 1.3 Finde alle Artikel, die zu diesen relevanten Einkaufslisten gehoeren
+            // 1.2 Finde alle Artikel, die zu diesen relevanten Einkaufslisten gehoeren
             for (einkaufslisteId in relevantEinkaufslistenIds) {
                 val artikelInEinkaufsliste = artikelRepo.getArtikelByEinkaufslisteIdSynchronous(einkaufslisteId)
                 artikelInEinkaufsliste.forEach { artikel ->
@@ -354,7 +348,7 @@ class ProduktGeschaeftVerbindungRepositoryImpl @Inject constructor(
                 }
             }
 
-            // 1.4 Finde alle Geschaefte, die mit relevanten Produkten verknuepft sind (ueber PGV)
+            // 1.3 Finde alle Geschaefte, die mit relevanten Produkten verknuepft sind (ueber PGV)
             for (produktId in relevantProduktIds) {
                 val verbindungen = produktGeschaeftVerbindungDao.getVerbindungenByProduktIdSynchronous(produktId)
                 verbindungen.forEach { verbindung: ProduktGeschaeftVerbindungEntitaet -> relevantGeschaeftIds.add(verbindung.geschaeftId) }
@@ -408,7 +402,10 @@ class ProduktGeschaeftVerbindungRepositoryImpl @Inject constructor(
                 val lokaleVerbindung = localVerbindungMap[documentId]
                 Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Verbindung: ProduktID='${firestoreVerbindung.produktId}', GeschaeftID='${firestoreVerbindung.geschaeftId}', Ersteller: ${firestoreVerbindung.erstellerId}")
 
-                val isVerbindungRelevantForPull = isVerbindungRelevantForSync(firestoreVerbindung, aktuellerBenutzerId, meineGruppenIds)
+                // Die Relevanzprüfung für den Pull muss jetzt die aktualisierte Logik verwenden, die gruppeRepositoryProvider nicht mehr verwendet.
+                val isVerbindungRelevantForPull = isProduktGeschaeftVerbindungPrivateAndOwnedBy(firestoreVerbindung.produktId, firestoreVerbindung.geschaeftId, aktuellerBenutzerId) ||
+                        produktRepo.isProduktLinkedToRelevantGroup(firestoreVerbindung.produktId, aktuellerBenutzerId) || // Prüft, ob das Produkt mit einer relevanten Einkaufsliste verknüpft ist
+                        geschaeftRepo.isGeschaeftLinkedToRelevantGroup(firestoreVerbindung.geschaeftId, aktuellerBenutzerId) // Prüft, ob das Geschäft mit einer relevanten Einkaufsliste verknüpft ist
 
                 if (lokaleVerbindung == null) {
                     if (isVerbindungRelevantForPull) { // Nur hinzufügen, wenn relevant
@@ -459,7 +456,9 @@ class ProduktGeschaeftVerbindungRepositoryImpl @Inject constructor(
             val uniqueFirestoreVerbindungIds = uniqueFirestoreVerbindungen.map { "${it.produktId}_${it.geschaeftId}" }.toSet()
             for (localVerbindung in allLocalVerbindungen) {
                 val documentId = "${localVerbindung.produktId}_${localVerbindung.geschaeftId}"
-                val istRelevantFuerBenutzer = isVerbindungRelevantForSync(localVerbindung, aktuellerBenutzerId, meineGruppenIds)
+                val istRelevantFuerBenutzer = isProduktGeschaeftVerbindungPrivateAndOwnedBy(localVerbindung.produktId, localVerbindung.geschaeftId, aktuellerBenutzerId) ||
+                        produktRepo.isProduktLinkedToRelevantGroup(localVerbindung.produktId, aktuellerBenutzerId) ||
+                        geschaeftRepo.isGeschaeftLinkedToRelevantGroup(localVerbindung.geschaeftId, aktuellerBenutzerId)
 
                 if (!uniqueFirestoreVerbindungIds.contains(documentId) &&
                     !localVerbindung.istLoeschungVorgemerkt && !localVerbindung.istLokalGeaendert &&
@@ -490,44 +489,42 @@ class ProduktGeschaeftVerbindungRepositoryImpl @Inject constructor(
     /**
      * Bestimmt, ob eine Produkt-Geschaeft-Verbindung fuer den aktuellen Benutzer synchronisationsrelevant ist.
      * Eine Verbindung ist synchronisationsrelevant, wenn sie ueber ein Produkt oder ein Geschaeft
-     * mit einer Gruppe verknuepft ist, in der der aktuelle Benutzer Mitglied ist ODER
+     * mit einer Einkaufsliste verknuepft ist, in der der aktuelle Benutzer Mitglied ist ODER
      * wenn sie privat ist und dem aktuellen Benutzer gehoert.
      *
      * @param verbindung Die zu pruefende ProduktGeschaeftVerbindungEntitaet.
      * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
-     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
      * @return True, wenn die Verbindung synchronisationsrelevant ist, sonst False.
      */
     private suspend fun isVerbindungRelevantForSync(
         verbindung: ProduktGeschaeftVerbindungEntitaet,
-        aktuellerBenutzerId: String,
-        meineGruppenIds: List<String>
+        aktuellerBenutzerId: String
     ): Boolean {
         val produktRepo = produktRepositoryProvider.get()
         val geschaeftRepo = geschaeftRepositoryProvider.get()
 
-        // Pruefe, ob das verknuepfte Produkt mit einer relevanten Gruppe verknuepft ist
-        val isProductLinkedToGroup = produktRepo.isProduktLinkedToRelevantGroup(verbindung.produktId, meineGruppenIds)
-        if (isProductLinkedToGroup) {
-            Timber.d("$TAG: Verbindung ProduktID='${verbindung.produktId}', GeschaeftID='${verbindung.geschaeftId}' ist relevant: Produkt '${verbindung.produktId}' ist mit relevanter Gruppe verbunden.")
+        // Pruefe, ob das verknuepfte Produkt mit einer relevanten Einkaufsliste verknuepft ist
+        val isProductLinkedToRelevantEinkaufsliste = produktRepo.isProduktLinkedToRelevantGroup(verbindung.produktId, aktuellerBenutzerId)
+        if (isProductLinkedToRelevantEinkaufsliste) {
+            Timber.d("$TAG: Verbindung ProduktID='${verbindung.produktId}', GeschaeftID='${verbindung.geschaeftId}' ist relevant: Produkt '${verbindung.produktId}' ist mit relevanter Einkaufsliste verbunden.")
             return true
         }
 
-        // Pruefe, ob das verknuepfte Geschaeft mit einer relevanten Gruppe verknuepft ist
-        val isGeschaeftLinkedToGroup = geschaeftRepo.isGeschaeftLinkedToRelevantGroup(verbindung.geschaeftId, meineGruppenIds)
-        if (isGeschaeftLinkedToGroup) {
-            Timber.d("$TAG: Verbindung ProduktID='${verbindung.produktId}', GeschaeftID='${verbindung.geschaeftId}' ist relevant: Geschaeft '${verbindung.geschaeftId}' ist mit relevanter Gruppe verbunden.")
+        // Pruefe, ob das verknuepfte Geschaeft mit einer relevanten Einkaufsliste verknuepft ist
+        val isGeschaeftLinkedToRelevantEinkaufsliste = geschaeftRepo.isGeschaeftLinkedToRelevantGroup(verbindung.geschaeftId, aktuellerBenutzerId)
+        if (isGeschaeftLinkedToRelevantEinkaufsliste) {
+            Timber.d("$TAG: Verbindung ProduktID='${verbindung.produktId}', GeschaeftID='${verbindung.geschaeftId}' ist relevant: Geschaeft '${verbindung.geschaeftId}' ist mit relevanter Einkaufsliste verbunden.")
             return true
         }
 
-        // NEU: Pruefe, ob die Verbindung privat und im Besitz des aktuellen Benutzers ist
+        // Pruefe, ob die Verbindung privat und im Besitz des aktuellen Benutzers ist
         val isPrivateAndOwned = isProduktGeschaeftVerbindungPrivateAndOwnedBy(verbindung.produktId, verbindung.geschaeftId, aktuellerBenutzerId)
         if (isPrivateAndOwned) {
             Timber.d("$TAG: Verbindung ProduktID='${verbindung.produktId}', GeschaeftID='${verbindung.geschaeftId}' ist relevant: Verbindung ist privat und gehoert dem aktuellen Benutzer.")
             return true
         }
 
-        Timber.d("$TAG: Verbindung ProduktID='${verbindung.produktId}', GeschaeftID='${verbindung.geschaeftId}' ist NICHT relevant fuer Sync (keine Gruppenverknuepfung ueber Produkt/Geschaeft UND nicht privat/eigen).")
+        Timber.d("$TAG: Verbindung ProduktID='${verbindung.produktId}', GeschaeftID='${verbindung.geschaeftId}' ist NICHT relevant fuer Sync (keine Einkaufslisten-Verknuepfung ueber Produkt/Geschaeft UND nicht privat/eigen).")
         return false
     }
 }

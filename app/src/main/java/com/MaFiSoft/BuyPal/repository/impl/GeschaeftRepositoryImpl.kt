@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/GeschaeftRepositoryImpl.kt
-// Stand: 2025-06-27_12:24:01, Codezeilen: ~570 (Hinzugefuegt: isGeschaeftPrivateAndOwnedBy, Pull-Sync-Logik angepasst)
+// Stand: 2025-07-06_08:55:00, Codezeilen: ~570 (Fehlerbehebung isGeschaeftLinkedToRelevantGroup und getAlleOeffentlichenEinkaufslistenSynchronous)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
@@ -10,7 +10,6 @@ import com.MaFiSoft.BuyPal.data.GeschaeftDao
 import com.MaFiSoft.BuyPal.data.GeschaeftEntitaet
 import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
-import com.MaFiSoft.BuyPal.repository.GruppeRepository
 import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository
 import com.MaFiSoft.BuyPal.repository.ArtikelRepository
 import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
@@ -34,7 +33,7 @@ import javax.inject.Singleton
  * Implementierung des Geschaeft-Repository.
  * Verwaltet Geschaeftsdaten lokal (Room) und in der Cloud (Firestore) nach dem Room-first-Ansatz.
  * Dieser Code implementiert den neuen "Goldstandard" fuer Push-Pull-Synchronisation,
- * basierend auf Gruppenzugehoerigkeit.
+ * basierend auf Einkaufslisten-Zugehoerigkeit.
  */
 @Singleton
 class GeschaeftRepositoryImpl @Inject constructor(
@@ -42,7 +41,6 @@ class GeschaeftRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val context: Context,
     private val benutzerRepositoryProvider: Provider<BenutzerRepository>,
-    private val gruppeRepositoryProvider: Provider<GruppeRepository>,
     private val produktGeschaeftVerbindungRepositoryProvider: Provider<ProduktGeschaeftVerbindungRepository>,
     private val artikelRepositoryProvider: Provider<ArtikelRepository>,
     private val einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository>,
@@ -89,31 +87,57 @@ class GeschaeftRepositoryImpl @Inject constructor(
         return geschaeftDao.getGeschaeftById(geschaeftId)
     }
 
+    /**
+     * NEU: Synchrone Methode zum Abrufen eines Geschaefts nach ID (fuer interne Repository-Logik)
+     * @param geschaeftId Die ID des abzurufenden Geschaefts.
+     * @return Die Geschaeft-Entitaet oder null, falls nicht gefunden.
+     */
+    override suspend fun getGeschaeftByIdSynchronous(geschaeftId: String): GeschaeftEntitaet? {
+        Timber.d("$TAG: getGeschaeftByIdSynchronous: Abrufen synchrones Geschaeft fuer ID: $geschaeftId")
+        return geschaeftDao.getGeschaeftByIdSynchronous(geschaeftId)
+    }
+
     override fun getAllGeschaefte(): Flow<List<GeschaeftEntitaet>> {
         Timber.d("$TAG: Abrufen aller aktiven Geschaefte (nicht zur Loeschung vorgemerkt).")
         return geschaeftDao.getAllGeschaefte()
     }
 
     /**
-     * Bestimmt, ob ein Geschaeft mit einer der relevanten Gruppen des Benutzers verknuepft ist.
-     * Dies ist ein kaskadierender Check: Geschaeft -> ProduktGeschaeftVerbindung -> Produkt -> Artikel -> Einkaufsliste -> Gruppe.
+     * Bestimmt, ob ein Geschaeft mit einer der relevanten Einkaufslisten des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Geschaeft -> ProduktGeschaeftVerbindung -> Produkt -> Artikel -> Einkaufsliste.
      *
      * @param geschaeftId Die ID des zu pruefenden Geschaefts.
-     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
-     * @return True, wenn das Geschaeft mit einer relevanten Gruppe verknuepft ist, sonst False.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn das Geschaeft mit einer relevanten Einkaufsliste verknuepft ist, sonst False.
      */
-    override suspend fun isGeschaeftLinkedToRelevantGroup(geschaeftId: String, meineGruppenIds: List<String>): Boolean {
+    override suspend fun isGeschaeftLinkedToRelevantGroup(geschaeftId: String, aktuellerBenutzerId: String): Boolean {
         val produktGeschaeftVerbindungRepo = produktGeschaeftVerbindungRepositoryProvider.get()
         val produktRepo = produktRepositoryProvider.get()
+        val artikelRepo = artikelRepositoryProvider.get()
+        val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
 
         val verbindungenFuerGeschaeft = produktGeschaeftVerbindungRepo.getVerbindungenByGeschaeftIdSynchronous(geschaeftId)
         if (verbindungenFuerGeschaeft.isEmpty()) return false
 
         for (verbindung in verbindungenFuerGeschaeft) {
-            // Pruefe, ob das verknuepfte Produkt der Verbindung relevant ist
-            if (produktRepo.isProduktLinkedToRelevantGroup(verbindung.produktId, meineGruppenIds)) {
-                Timber.d("$TAG: Geschaeft '$geschaeftId' ist mit relevanter Gruppe ueber Produkt '${verbindung.produktId}' verknuepft.")
-                return true // Geschaeft ist mit relevanter Gruppe verknuepft
+            val produkt = produktRepo.getProduktById(verbindung.produktId).firstOrNull()
+            produkt?.let {
+                val artikelDieProduktNutzen = artikelRepo.getArtikelByProduktIdSynchronous(it.produktId)
+                for (artikel in artikelDieProduktNutzen) {
+                    artikel.einkaufslisteId?.let { einkaufslisteId ->
+                        // Pruefe, ob die Einkaufsliste oeffentlich ist und der Benutzer Mitglied ist
+                        val isEinkaufslistePublicAndMember = einkaufslisteRepo.getAlleOeffentlichenEinkaufslistenSynchronous() // KORRIGIERT
+                            .any { el -> el.einkaufslisteId == einkaufslisteId && el.mitgliederIds.contains(aktuellerBenutzerId) }
+
+                        // Pruefe, ob die Einkaufsliste privat ist und dem Benutzer gehoert
+                        val isEinkaufslistePrivateAndOwned = einkaufslisteRepo.isEinkaufslistePrivateAndOwnedBy(einkaufslisteId, aktuellerBenutzerId)
+
+                        if (isEinkaufslistePublicAndMember || isEinkaufslistePrivateAndOwned) {
+                            Timber.d("$TAG: Geschaeft '$geschaeftId' ist mit relevanter Einkaufsliste '$einkaufslisteId' verknuepft.")
+                            return true
+                        }
+                    }
+                }
             }
         }
         return false
@@ -123,7 +147,7 @@ class GeschaeftRepositoryImpl @Inject constructor(
      * NEU: Prueft, ob ein Geschaeft eine private Kategorie des aktuellen Benutzers ist.
      * Ein Geschaeft ist privat, wenn es in einer ProduktGeschaeftVerbindung enthalten ist,
      * die wiederum in einem Produkt enthalten ist, das in einem Artikel enthalten ist,
-     * der in einer Einkaufsliste mit 'gruppeId = null' enthalten ist UND
+     * der in einer Einkaufsliste mit 'istOeffentlich = false' enthalten ist UND
      * die 'erstellerId' dieser Einkaufsliste der 'aktuellerBenutzerId' entspricht.
      *
      * @param geschaeftId Die ID des zu pruefenden Geschaefts.
@@ -218,15 +242,13 @@ class GeschaeftRepositoryImpl @Inject constructor(
             return
         }
 
-        val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
-            .firstOrNull()
-            ?.map { it.gruppeId }
-            ?: emptyList()
+        // Die Gruppen-IDs werden nicht mehr direkt hier geholt, da die Einkaufsliste die Gruppenlogik enthaelt.
+        // Stattdessen wird die Relevanz ueber die Einkaufsliste geprueft.
 
         Timber.d("$TAG: Sync Push: Starte Push-Phase fuer Geschaefte.")
 
         val isGeschaeftRelevantForSync: suspend (GeschaeftEntitaet) -> Boolean = { geschaeft ->
-            this.isGeschaeftLinkedToRelevantGroup(geschaeft.geschaeftId, meineGruppenIds) ||
+            this.isGeschaeftLinkedToRelevantGroup(geschaeft.geschaeftId, aktuellerBenutzerId) ||
                     this.isGeschaeftPrivateAndOwnedBy(geschaeft.geschaeftId, aktuellerBenutzerId) // NEU: Auch private, eigene Geschaefte sind relevant
         }
 
@@ -249,7 +271,7 @@ class GeschaeftRepositoryImpl @Inject constructor(
                     Timber.d("$TAG: Sync Push: Lokales Geschaeft (ID: '${geschaeft.geschaeftId}') nach Firestore-Loeschung (oder Versuch) endgueltig entfernt.")
                 }
             } else {
-                Timber.d("$TAG: Sync Push: Geschaeft ${geschaeft.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Lokales Flag 'istLokalGeaendert' zuruecksetzen.")
+                Timber.d("$TAG: Sync Push: Geschaeft ${geschaeft.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Einkaufslisten-Verbindung UND nicht privat/eigen). Lokales Flag 'istLokalGeaendert' zuruecksetzen.")
                 geschaeftDao.geschaeftAktualisieren(geschaeft.copy(istLokalGeaendert = false))
             }
         }
@@ -275,7 +297,7 @@ class GeschaeftRepositoryImpl @Inject constructor(
                         Timber.e(e, "$TAG: Sync Push: FEHLER beim Hochladen von Geschaeft ${geschaeft.name} (ID: ${firestoreDocId}) zu Firestore: ${e.message}.")
                     }
                 } else {
-                    Timber.d("$TAG: Sync Push: Geschaeft ${geschaeft.name} (ID: ${firestoreDocId}) ist lokal geaendert, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Kein Upload zu Firestore. Setze istLokalGeaendert zurueck.")
+                    Timber.d("$TAG: Sync Push: Geschaeft ${geschaeft.name} (ID: ${firestoreDocId}) ist lokal geaendert, aber nicht relevant fuer Cloud-Sync (keine Einkaufslisten-Verbindung UND nicht privat/eigen). Kein Upload zu Firestore. Setze istLokalGeaendert zurueck.")
                     geschaeftDao.geschaeftAktualisieren(geschaeft.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
                 }
             } else {
@@ -291,7 +313,7 @@ class GeschaeftRepositoryImpl @Inject constructor(
     /**
      * Fuehrt den Pull-Synchronisationsprozess fuer Geschaefte aus.
      * Zieht Geschaefte von Firestore herunter, die mit Produkt-Geschaeft-Verbindungen verknuepft sind,
-     * welche wiederum fuer den aktuellen Benutzer aufgrund seiner Gruppenzugehoerigkeit oder privater Nutzung relevant sind.
+     * welche wiederum fuer den aktuellen Benutzer aufgrund seiner Einkaufslisten-Zugehoerigkeit oder privater Nutzung relevant sind.
      * Die erstellerId des Geschaefts ist fuer die Sync-Entscheidung irrelevant.
      */
     private suspend fun performPullSync() {
@@ -303,36 +325,27 @@ class GeschaeftRepositoryImpl @Inject constructor(
                 return
             }
 
-            val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
-                .firstOrNull()
-                ?.map { it.gruppeId }
-                ?: emptyList()
-
             // Benötigte Repository-Instanzen
             val produktGeschaeftVerbindungRepo = produktGeschaeftVerbindungRepositoryProvider.get()
             val produktRepo = produktRepositoryProvider.get()
             val artikelRepo = artikelRepositoryProvider.get()
             val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
 
-            // Schritt 1: Sammle alle relevanten Produkt- und Artikel-IDs basierend auf Gruppenverknuepfung ODER privater Nutzung
+            // Schritt 1: Sammle alle relevanten Einkaufslisten-IDs basierend auf Gruppenzugehoerigkeit ODER privater Nutzung
             val relevantEinkaufslistenIds = mutableSetOf<String>()
-            val relevantArtikelIds = mutableSetOf<String>()
             val relevantProduktIds = mutableSetOf<String>()
-            val relevantProduktGeschaeftVerbindungIds = mutableSetOf<Pair<String, String>>() // Pair<ProduktID, GeschaeftID>
+            val relevantGeschaeftIds = mutableSetOf<String>()
 
-            // 1.1 Finde alle Einkaufslisten, die zu meinen Gruppen gehoeren
-            for (gruppeId in meineGruppenIds) {
-                val einkaufslistenInGruppe = einkaufslisteRepo.getEinkaufslistenByGruppeIdSynchronous(gruppeId)
-                relevantEinkaufslistenIds.addAll(einkaufslistenInGruppe.map { it.einkaufslisteId })
-            }
+            // 1.1 Finde alle Einkaufslisten, die der Benutzer gehoert (oeffentliche und private)
+            val alleEinkaufslisten = einkaufslisteRepo.getAllEinkaufslistenSynchronous() // KORRIGIERT
+            alleEinkaufslisten.filter {
+                // Einkaufsliste ist oeffentlich und Benutzer ist Mitglied ODER
+                // Einkaufsliste ist privat und Benutzer ist der Ersteller
+                (it.istOeffentlich && it.mitgliederIds.contains(aktuellerBenutzerId)) ||
+                        (!it.istOeffentlich && it.erstellerId == aktuellerBenutzerId)
+            }.map { it.einkaufslisteId }.let { relevantEinkaufslistenIds.addAll(it) }
 
-            // 1.2 Finde alle privaten Einkaufslisten des aktuellen Benutzers
-            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslisten().firstOrNull() ?: emptyList()
-            privateEinkaufslisten.filter { it.erstellerId == aktuellerBenutzerId && it.gruppeId == null }
-                .map { it.einkaufslisteId }
-                .let { relevantEinkaufslistenIds.addAll(it) }
-
-            // 1.3 Finde alle Artikel, die zu diesen relevanten Einkaufslisten gehoeren
+            // 1.2 Finde alle Artikel, die zu diesen relevanten Einkaufslisten gehoeren
             for (einkaufslisteId in relevantEinkaufslistenIds) {
                 val artikelInEinkaufsliste = artikelRepo.getArtikelByEinkaufslisteIdSynchronous(einkaufslisteId)
                 artikelInEinkaufsliste.forEach { artikel ->
@@ -340,7 +353,7 @@ class GeschaeftRepositoryImpl @Inject constructor(
                 }
             }
 
-            // 1.4 Finde alle Produkt-Geschaeft-Verbindungen, die mit relevanten Produkten verknuepft sind
+            // 1.3 Finde alle Produkt-Geschaeft-Verbindungen, die mit relevanten Produkten verknuepft sind
             val chunkedRelevantProduktIdsForVerbindungLookup = relevantProduktIds.chunked(10)
             for (chunk in chunkedRelevantProduktIdsForVerbindungLookup) {
                 if (chunk.isNotEmpty()) {
@@ -348,21 +361,16 @@ class GeschaeftRepositoryImpl @Inject constructor(
                         .whereIn("produktId", chunk.toList())
                         .get().await()
                     verbindungenSnapshot.forEach { doc ->
-                        relevantProduktGeschaeftVerbindungIds.add(Pair(doc.getString("produktId")!!, doc.getString("geschaeftId")!!))
+                        doc.getString("geschaeftId")?.let { relevantGeschaeftIds.add(it) }
                     }
                 }
             }
-            Timber.d("$TAG: Sync Pull: ${relevantProduktGeschaeftVerbindungIds.size} relevante Produkt-Geschaeft-Verbindungen (via Produkte) gefunden.")
+            Timber.d("$TAG: Sync Pull: ${relevantGeschaeftIds.size} relevante Geschaeft-IDs (via Produkte) gefunden.")
 
-            // Schritt 2: Lade Geschaefte von Firestore herunter, die diese relevanten Produkt-Geschaeft-Verbindungen referenzieren
+            // Schritt 2: Lade Geschaefte von Firestore herunter, die diese relevanten Geschaeft-IDs haben
             val firestoreGeschaeftList = mutableListOf<GeschaeftEntitaet>()
 
-            // Sammle alle Geschaefts-IDs aus diesen relevanten Verbindungen
-            val geschaeftIdsToPull = relevantProduktGeschaeftVerbindungIds.map { it.second }.toSet()
-            Timber.d("$TAG: Sync Pull: ${geschaeftIdsToPull.size} relevante Geschaeft-IDs fuer Pull.")
-
-            // Lade Geschaefte von Firestore herunter, die diese Geschaefts-IDs haben
-            val chunkedGeschaeftIdsToPull = geschaeftIdsToPull.chunked(10)
+            val chunkedGeschaeftIdsToPull = relevantGeschaeftIds.chunked(10)
             for (chunk in chunkedGeschaeftIdsToPull) {
                 if (chunk.isNotEmpty()) {
                     val chunkSnapshot: QuerySnapshot = firestoreCollection
@@ -383,7 +391,7 @@ class GeschaeftRepositoryImpl @Inject constructor(
                 val lokalesGeschaeft = localGeschaeftMap[firestoreGeschaeft.geschaeftId]
                 Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Geschaeft: ${firestoreGeschaeft.name} (ID: ${firestoreGeschaeft.geschaeftId})")
 
-                val isGeschaeftRelevantForPull = isGeschaeftLinkedToRelevantGroup(firestoreGeschaeft.geschaeftId, meineGruppenIds) ||
+                val isGeschaeftRelevantForPull = isGeschaeftLinkedToRelevantGroup(firestoreGeschaeft.geschaeftId, aktuellerBenutzerId) ||
                         isGeschaeftPrivateAndOwnedBy(firestoreGeschaeft.geschaeftId, aktuellerBenutzerId)
 
                 if (lokalesGeschaeft == null) {
@@ -434,19 +442,19 @@ class GeschaeftRepositoryImpl @Inject constructor(
 
             val uniqueFirestoreGeschaeftIds = uniqueFirestoreGeschaefte.map { it.geschaeftId }.toSet()
             for (localGeschaeft in allLocalGeschaefte) {
-                val istRelevantFuerBenutzer = isGeschaeftLinkedToRelevantGroup(localGeschaeft.geschaeftId, meineGruppenIds) ||
+                val istRelevantFuerBenutzer = isGeschaeftLinkedToRelevantGroup(localGeschaeft.geschaeftId, aktuellerBenutzerId) ||
                         isGeschaeftPrivateAndOwnedBy(localGeschaeft.geschaeftId, aktuellerBenutzerId)
 
                 // Lokales Geschaeft loeschen, wenn es nicht mehr in Firestore vorhanden ist
                 // UND nicht lokal geaendert/vorgemerkt ist
-                // UND nicht relevant fuer diesen Benutzer ist (keine Gruppenverbindung ODER nicht privat/eigen)
+                // UND nicht relevant fuer diesen Benutzer ist (keine Einkaufslisten-Verbindung UND nicht privat/eigen)
                 if (!uniqueFirestoreGeschaeftIds.contains(localGeschaeft.geschaeftId) &&
                     !localGeschaeft.istLoeschungVorgemerkt && !localGeschaeft.istLokalGeaendert &&
                     !istRelevantFuerBenutzer) {
                     geschaeftDao.deleteGeschaeftById(localGeschaeft.geschaeftId)
                     Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${localGeschaeft.name} (ID: ${localGeschaeft.geschaeftId}) GELÖSCHT, da nicht mehr in Firestore vorhanden UND nicht relevant fuer diesen Benutzer UND lokal synchronisiert war.")
                 } else if (istRelevantFuerBenutzer) {
-                    Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${localGeschaeft.name} (ID: ${localGeschaeft.geschaeftId}) BLEIBT LOKAL, da es noch fuer diesen Benutzer relevant ist (mit relevanter Gruppe verbunden ODER privat/eigen).")
+                    Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${localGeschaeft.name} (ID: ${localGeschaeft.geschaeftId}) BLEIBT LOKAL, da es noch fuer diesen Benutzer relevant ist (mit relevanter Einkaufsliste verbunden ODER privat/eigen).")
                 } else {
                     Timber.d("$TAG: Sync Pull: Lokales Geschaeft ${localGeschaeft.name} (ID: ${localGeschaeft.geschaeftId}) BLEIBT LOKAL (Grund: ${if(localGeschaeft.istLokalGeaendert) "lokal geaendert" else if (localGeschaeft.istLoeschungVorgemerkt) "zur Loeschung vorgemerkt" else "nicht remote gefunden, aber dennoch lokal behalten, da es nicht als nicht-relevant identifiziert wurde."}).")
                 }

@@ -1,141 +1,101 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/presentation/viewmodel/EinkaufslisteViewModel.kt
-// Stand: 2025-06-24_04:25:00, Codezeilen: ~180 (createEinkaufsliste erweitert, uiEvent hinzugefuegt)
+// Stand: 2025-07-06_12:00:00, Codezeilen: ~220 (Methoden und Signaturen korrigiert)
 
 package com.MaFiSoft.BuyPal.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.MaFiSoft.BuyPal.data.EinkaufslisteEntitaet
-import com.MaFiSoft.BuyPal.data.GruppeEntitaet // Beibehalten, falls fuer getAllGruppen benoetigt
 import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
-import com.MaFiSoft.BuyPal.repository.GruppeRepository
-import com.MaFiSoft.BuyPal.repository.BenutzerRepository // NEU: Import fuer BenutzerRepository
+import com.MaFiSoft.BuyPal.repository.BenutzerRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.firstOrNull // Fuer das Abrufen eines einzelnen Elements
-import kotlinx.coroutines.flow.MutableSharedFlow // NEU: Fuer UI-Events
-import kotlinx.coroutines.flow.asSharedFlow // NEU: Fuer UI-Events
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.util.Date
-import java.util.UUID // Fuer UUID-Generierung
+import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
 class EinkaufslisteViewModel @Inject constructor(
     private val einkaufslisteRepository: EinkaufslisteRepository,
-    private val gruppeRepository: GruppeRepository, // Wird fuer die Gruppenauswahl benoetigt
-    private val benutzerRepository: BenutzerRepository // NEU: Injiziere BenutzerRepository, um erstellerId zu bekommen
+    private val benutzerRepository: BenutzerRepository
 ) : ViewModel() {
 
-    private val TAG = "EinkaufslisteVM"
+    private val TAG = "EinkaufslisteViewModel"
 
-    // SharedFlow fuer einmalige UI-Ereignisse (z.B. Snackbar-Meldungen)
+    // Exponiert alle Einkaufslisten (private und oeffentliche) fuer die UI
+    val alleEinkaufslisten: Flow<List<EinkaufslisteEntitaet>> = einkaufslisteRepository.getAllEinkaufslisten()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    // UI-Events fuer Snackbar-Nachrichten etc.
     private val _uiEvent = MutableSharedFlow<String>()
-    val uiEvent = _uiEvent.asSharedFlow() // Exponiert als read-only SharedFlow
-
-    // Exponiert alle aktiven Einkaufslisten als StateFlow, um sie in der UI zu beobachten
-    val alleEinkaufslisten: Flow<List<EinkaufslisteEntitaet>> =
-        einkaufslisteRepository.getAllEinkaufslisten()
-            .map { it.sortedBy { einkaufsliste -> einkaufsliste.name } }
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5000),
-                initialValue = emptyList()
-            )
-
-    // Exponiert alle aktiven Gruppen als StateFlow, um sie in der UI zur Auswahl anzubieten
-    val alleGruppen: Flow<List<GruppeEntitaet>> =
-        gruppeRepository.getAllGruppen()
-            .map { it.sortedBy { gruppe -> gruppe.name } }
-            .stateIn(
-                scope = viewModelScope,
-                started = SharingStarted.WhileSubscribed(5000),
-                initialValue = emptyList()
-            )
+    val uiEvent = _uiEvent.asSharedFlow()
 
     /**
-     * Erstellt eine neue Einkaufsliste und speichert sie lokal.
-     *
-     * @param name Name der Einkaufsliste.
-     * @param sollOeffentlichSein Gibt an, ob die Liste öffentlich (d.h. gruppenbezogen) sein soll.
-     * @param gruppeIdEingabe Optionale ID der Gruppe, falls die Liste öffentlich sein soll.
-     * @param erstellerId Die ID des Benutzers, der die Einkaufsliste erstellt.
+     * Erstellt eine neue Einkaufsliste.
+     * @param name Der Name der Einkaufsliste.
+     * @param beschreibung Die optionale Beschreibung.
+     * @param erstellerId Die ID des Erstellers (kann "anonym" sein).
+     * @param istOeffentlich Gibt an, ob die Liste oeffentlich sein soll.
      */
-    fun createEinkaufsliste(name: String, sollOeffentlichSein: Boolean, gruppeIdEingabe: String?, erstellerId: String) {
+    fun createEinkaufsliste(name: String, beschreibung: String?, erstellerId: String, istOeffentlich: Boolean) {
         viewModelScope.launch {
-            Timber.d("$TAG: createEinkaufsliste aufgerufen mit Name: '$name', Oeffentlich: $sollOeffentlichSein, GruppeId: $gruppeIdEingabe, ErstellerId: $erstellerId.")
             try {
-                if (erstellerId.isBlank()) {
-                    Timber.w("$TAG: createEinkaufsliste: Ersteller-ID ist leer. Aktion abgebrochen.")
-                    _uiEvent.emit("Fehler: Keine gültige Ersteller-ID verfügbar. Bitte melden Sie sich an.")
-                    return@launch
-                }
-
-                if (sollOeffentlichSein && gruppeIdEingabe.isNullOrBlank()) {
-                    Timber.w("$TAG: createEinkaufsliste: Oeffentliche Liste ohne GruppeId. Aktion abgebrochen.")
-                    _uiEvent.emit("Fehler: Für öffentliche Listen muss eine Gruppe ausgewählt werden.")
-                    return@launch
-                }
-
-                val neueEinkaufsliste = EinkaufslisteEntitaet(
+                val einkaufsliste = EinkaufslisteEntitaet(
                     einkaufslisteId = UUID.randomUUID().toString(),
                     name = name,
-                    beschreibung = null, // Kann spaeter ueber Bearbeiten hinzugefuegt werden
-                    gruppeId = gruppeIdEingabe,
+                    beschreibung = beschreibung,
                     erstellerId = erstellerId,
-                    erstellungszeitpunkt = Date(),
-                    zuletztGeaendert = Date(),
+                    mitgliederIds = if (istOeffentlich) listOf(erstellerId) else emptyList(),
+                    gruppeId = if (istOeffentlich) UUID.randomUUID().toString() else null,
+                    erstellungszeitpunkt = null, // Wird von Firestore gesetzt
+                    zuletztGeaendert = null, // Wird von Firestore gesetzt oder manuell aktualisiert
                     istLokalGeaendert = true,
                     istLoeschungVorgemerkt = false
                 )
-                einkaufslisteRepository.einkaufslisteSpeichern(neueEinkaufsliste)
-                Timber.d("$TAG: Einkaufsliste '$name' (ID: ${neueEinkaufsliste.einkaufslisteId}) erfolgreich erstellt.")
-                _uiEvent.emit("Einkaufsliste '${neueEinkaufsliste.name}' erstellt.")
+                einkaufslisteRepository.einkaufslisteSpeichern(einkaufsliste)
+                _uiEvent.emit("Einkaufsliste '$name' erstellt.")
             } catch (e: Exception) {
-                Timber.e(e, "$TAG: FEHLER (createEinkaufsliste): Ausnahme beim Erstellen der Einkaufsliste: ${e.message}")
+                Timber.e(e, "$TAG: FEHLER beim Erstellen der Einkaufsliste: ${e.message}")
                 _uiEvent.emit("Fehler beim Erstellen der Einkaufsliste: ${e.localizedMessage ?: e.message}")
             }
         }
     }
 
-
     /**
-     * Speichert eine Einkaufsliste oder aktualisiert eine bestehende lokal.
-     *
-     * @param einkaufsliste Die [EinkaufslisteEntitaet], die gespeichert oder aktualisiert werden soll.
+     * Aktualisiert eine bestehende Einkaufsliste.
+     * @param einkaufsliste Die zu aktualisierende Einkaufsliste.
      */
-    fun einkaufslisteSpeichern(einkaufsliste: EinkaufslisteEntitaet) {
+    fun updateEinkaufsliste(einkaufsliste: EinkaufslisteEntitaet) {
         viewModelScope.launch {
-            Timber.d("$TAG: einkaufslisteSpeichern (ViewModel) aufgerufen fuer: ${einkaufsliste.name}")
             try {
-                einkaufslisteRepository.einkaufslisteSpeichern(einkaufsliste)
-                Timber.d("$TAG: Einkaufsliste '${einkaufsliste.name}' gespeichert/aktualisiert.")
-                _uiEvent.emit("Einkaufsliste '${einkaufsliste.name}' gespeichert/aktualisiert.")
+                einkaufslisteRepository.einkaufslisteAktualisieren(einkaufsliste)
+                _uiEvent.emit("Einkaufsliste '${einkaufsliste.name}' aktualisiert.")
             } catch (e: Exception) {
-                Timber.e(e, "$TAG: FEHLER (einkaufslisteSpeichern ViewModel): Ausnahme beim Speichern der Einkaufsliste: ${e.message}")
-                _uiEvent.emit("Fehler beim Speichern der Einkaufsliste: ${e.localizedMessage ?: e.message}")
+                Timber.e(e, "$TAG: FEHLER beim Aktualisieren der Einkaufsliste: ${e.message}")
+                _uiEvent.emit("Fehler beim Aktualisieren der Einkaufsliste: ${e.localizedMessage ?: e.message}")
             }
         }
     }
 
     /**
-     * Markiert eine Einkaufsliste zur Loeschung (Soft Delete).
-     *
-     * @param einkaufsliste Die [EinkaufslisteEntitaet], die zur Loeschung vorgemerkt werden soll.
+     * Markiert eine Einkaufsliste zur Loeschung.
+     * @param einkaufsliste Die zur Loeschung vorzumerkende Einkaufsliste.
      */
-    fun einkaufslisteZurLoeschungVormerken(einkaufsliste: EinkaufslisteEntitaet) {
-        Timber.d("$TAG: Versuche Einkaufsliste '${einkaufsliste.name}' zur Loeschung vorzumerken.")
+    fun markEinkaufslisteForDeletion(einkaufsliste: EinkaufslisteEntitaet) {
         viewModelScope.launch {
             try {
                 einkaufslisteRepository.markEinkaufslisteForDeletion(einkaufsliste)
-                Timber.d("$TAG: Einkaufsliste '${einkaufsliste.name}' lokal zur Loeschung vorgemerkt. UI sollte aktualisieren.")
-                _uiEvent.emit("Einkaufsliste '${einkaufsliste.name}' zur Löschung vorgemerkt.")
+                _uiEvent.emit("Einkaufsliste '${einkaufsliste.name}' zur Loeschung vorgemerkt.")
             } catch (e: Exception) {
-                Timber.e(e, "$TAG: FEHLER (einkaufslisteZurLoeschungVormerken ViewModel): Ausnahme beim Vormerken der Einkaufsliste zur Loeschung: ${e.message}")
+                Timber.e(e, "$TAG: FEHLER beim Vormerken der Einkaufsliste zur Loeschung: ${e.message}")
                 _uiEvent.emit("Fehler beim Vormerken der Einkaufsliste zur Löschung: ${e.localizedMessage ?: e.message}")
             }
         }
@@ -147,14 +107,69 @@ class EinkaufslisteViewModel @Inject constructor(
         return einkaufslisteRepository.getEinkaufslisteById(einkaufslisteId)
     }
 
-    // Exponiert Einkaufslisten nach Gruppe ID
-    // KORRIGIERT: Methode umbenannt zu getEinkaufslistenByGruppeId
-    fun getEinkaufslistenByGruppeId(gruppeId: String): Flow<List<EinkaufslisteEntitaet>> {
-        Timber.d("$TAG: getEinkaufslistenByGruppeId (ViewModel) aufgerufen fuer Gruppe ID: $gruppeId")
-        return einkaufslisteRepository.getEinkaufslistenByGruppeId(gruppeId)
+    /**
+     * Versucht, einer oeffentlichen Einkaufsliste beizutreten.
+     * @param beitrittsCode Der Beitrittscode (gruppeId der Einkaufsliste).
+     * @param aktuellerBenutzerId Die ID des Benutzers, der beitreten moechte.
+     */
+    fun einkaufslisteBeitreten(beitrittsCode: String, aktuellerBenutzerId: String) {
+        viewModelScope.launch {
+            try {
+                if (einkaufslisteRepository.einkaufslisteBeitreten(beitrittsCode, aktuellerBenutzerId)) {
+                    _uiEvent.emit("Erfolgreich Einkaufsliste beigetreten!")
+                } else {
+                    _uiEvent.emit("Beitritt zur Einkaufsliste fehlgeschlagen. Code falsch oder bereits Mitglied.")
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "$TAG: FEHLER beim Beitreten der Einkaufsliste: ${e.message}")
+                _uiEvent.emit("Fehler beim Beitreten der Einkaufsliste: ${e.localizedMessage ?: e.message}")
+            }
+        }
     }
 
-    // Funktion zum manuellen Ausloesen der Synchronisation
+    /**
+     * Verlaesst eine Einkaufsliste fuer den aktuellen Benutzer.
+     * @param einkaufslisteId Die ID der Einkaufsliste, die verlassen werden soll.
+     * @param benutzerId Die ID des Benutzers, der die Liste verlassen moechte.
+     */
+    fun einkaufslisteVerlassen(einkaufslisteId: String, benutzerId: String) {
+        viewModelScope.launch {
+            try {
+                if (einkaufslisteRepository.einkaufslisteVerlassen(einkaufslisteId, benutzerId)) {
+                    _uiEvent.emit("Einkaufsliste erfolgreich verlassen.")
+                } else {
+                    _uiEvent.emit("Fehler beim Verlassen der Einkaufsliste.")
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "$TAG: FEHLER beim Verlassen der Einkaufsliste: ${e.message}")
+                _uiEvent.emit("Fehler beim Verlassen der Einkaufsliste: ${e.localizedMessage ?: e.message}")
+            }
+        }
+    }
+
+    /**
+     * Entfernt ein Mitglied aus einer Einkaufsliste. Nur fuer Ersteller der Liste.
+     * @param einkaufslisteId Die ID der Einkaufsliste.
+     * @param mitgliedBenutzerId Die ID des Mitglieds, das entfernt werden soll.
+     */
+    fun entferneMitgliedVonEinkaufsliste(einkaufslisteId: String, mitgliedBenutzerId: String) {
+        viewModelScope.launch {
+            try {
+                if (einkaufslisteRepository.entferneMitgliedVonEinkaufsliste(einkaufslisteId, mitgliedBenutzerId)) {
+                    _uiEvent.emit("Mitglied erfolgreich entfernt.")
+                } else {
+                    _uiEvent.emit("Fehler beim Entfernen des Mitglieds.")
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "$TAG: FEHLER beim Entfernen des Mitglieds: ${e.message}")
+                _uiEvent.emit("Fehler beim Entfernen des Mitglieds: ${e.localizedMessage ?: e.message}")
+            }
+        }
+    }
+
+    /**
+     * Funktion zum manuellen Ausloesen der Synchronisation der Einkaufslisten.
+     */
     fun syncEinkaufslistenDaten() {
         Timber.d("$TAG: syncEinkaufslistenDaten (ViewModel) ausgeloest.")
         viewModelScope.launch {

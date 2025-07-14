@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/KategorieRepositoryImpl.kt
-// Stand: 2025-06-27_12:22:00, Codezeilen: ~470 (Pull-Sync-Logik fuer Produkt-Kategorie-Verknuepfung korrigiert)
+// Stand: 2025-07-06_09:25:00, Codezeilen: ~470 (Fehlerbehebung isProduktLinkedToRelevantGroupViaKategorie und Pull-Sync)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
@@ -11,7 +11,6 @@ import com.MaFiSoft.BuyPal.data.KategorieEntitaet
 import com.MaFiSoft.BuyPal.data.ProduktEntitaet // NEU: Import fuer ProduktEntitaet
 import com.MaFiSoft.BuyPal.repository.KategorieRepository
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
-import com.MaFiSoft.BuyPal.repository.GruppeRepository
 import com.MaFiSoft.BuyPal.repository.ProduktRepository // Import fuer ProduktRepository
 import com.MaFiSoft.BuyPal.repository.ArtikelRepository // NEU: Import fuer ArtikelRepository
 import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository // NEU: Import fuer EinkaufslisteRepository
@@ -41,7 +40,6 @@ class KategorieRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val context: Context,
     private val benutzerRepositoryProvider: Provider<BenutzerRepository>, // Geaendert zu Provider
-    private val gruppeRepositoryProvider: Provider<GruppeRepository>, // Geaendert zu Provider
     private val produktRepositoryProvider: Provider<ProduktRepository>,
     private val artikelRepositoryProvider: Provider<ArtikelRepository>, // NEU: Provider fuer ArtikelRepository
     private val einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository> // NEU: Provider fuer EinkaufslisteRepository
@@ -191,10 +189,10 @@ class KategorieRepositoryImpl @Inject constructor(
         // Hilfsfunktion zur Bestimmung der Relevanz einer Kategorie für den Push/Pull
         val isKategorieRelevantForSync: suspend (KategorieEntitaet) -> Boolean = { kategorie ->
             // Eine Kategorie ist relevant, wenn sie vom aktuellen Benutzer erstellt wurde ODER
-            // wenn sie in einem Produkt verwendet wird, das mit einer relevanten Gruppe verknuepft ist ODER
+            // wenn sie in einem Produkt verwendet wird, das mit einer relevanten Einkaufsliste verknuepft ist ODER
             // wenn sie in einem Produkt verwendet wird, das in einer privaten Einkaufsliste des Benutzers ist.
             kategorie.erstellerId == aktuellerBenutzerId ||
-                    produktRepositoryProvider.get().isProduktLinkedToRelevantGroupViaKategorie(kategorie.kategorieId, gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId).firstOrNull()?.map { it.gruppeId } ?: emptyList()) || // Annahme: Neue Methode im ProduktRepo
+                    produktRepositoryProvider.get().isProduktLinkedToRelevantGroupViaKategorie(kategorie.kategorieId, aktuellerBenutzerId) || // Angepasster Aufruf ohne gruppenIds
                     isKategoriePrivateAndOwnedBy(kategorie.kategorieId, aktuellerBenutzerId)
         }
 
@@ -220,7 +218,7 @@ class KategorieRepositoryImpl @Inject constructor(
                     Timber.d("$TAG: Sync Push: Lokale Kategorie (ID: '${kategorie.kategorieId}') nach Firestore-Loeschung (oder Versuch) endgueltig entfernt.")
                 }
             } else {
-                Timber.d("$TAG: Sync Push: Kategorie ${kategorie.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Lokales Flag 'istLokalGeaendert' zuruecksetzen.")
+                Timber.d("$TAG: Sync Push: Kategorie ${kategorie.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Einkaufslisten-Verbindung fuer diesen Benutzer). Lokales Flag 'istLokalGeaendert' zuruecksetzen.")
                 kategorieDao.kategorieAktualisieren(kategorie.copy(istLokalGeaendert = false))
             }
         }
@@ -248,7 +246,7 @@ class KategorieRepositoryImpl @Inject constructor(
                         Timber.e(e, "$TAG: Sync Push: FEHLER beim Hochladen von Kategorie ${kategorie.name} (ID: ${firestoreDocId}) zu Firestore: ${e.message}.")
                     }
                 } else {
-                    Timber.d("$TAG: Sync Push: Kategorie ${kategorie.name} (ID: ${firestoreDocId}) ist lokal geaendert, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Kein Upload zu Firestore. Setze istLokalGeaendert zurueck.")
+                    Timber.d("$TAG: Sync Push: Kategorie ${kategorie.name} (ID: ${firestoreDocId}) ist lokal geaendert, aber nicht relevant fuer Cloud-Sync (keine Einkaufslisten-Verbindung fuer diesen Benutzer). Kein Upload zu Firestore. Setze istLokalGeaendert zurueck.")
                     kategorieDao.kategorieAktualisieren(kategorie.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
                 }
             } else {
@@ -270,7 +268,7 @@ class KategorieRepositoryImpl @Inject constructor(
 
     /**
      * Fuehrt den Pull-Synchronisationsprozess fuer Kategorien aus.
-     * Zieht Kategorien von Firestore herunter, die von den Erstellern der Gruppen erstellt wurden,
+     * Zieht Kategorien von Firestore herunter, die von den Erstellern der relevanten Einkaufslisten erstellt wurden,
      * in denen der aktuelle Benutzer Mitglied ist, sowie Kategorien, die der Benutzer selbst erstellt hat.
      * Oder Kategorien, die in privaten Produkten/Artikeln/Einkaufslisten des Benutzers verwendet werden.
      */
@@ -278,9 +276,7 @@ class KategorieRepositoryImpl @Inject constructor(
         Timber.d("$TAG: performPullSync aufgerufen.")
         try {
             val aktuellerBenutzer = benutzerRepositoryProvider.get().getAktuellerBenutzer().firstOrNull()
-            val aktuellerBenutzerId = aktuellerBenutzer?.benutzerId
-
-            if (aktuellerBenutzerId == null) {
+            val aktuellerBenutzerId = aktuellerBenutzer?.benutzerId ?: run {
                 Timber.w("$TAG: performPullSync: Aktueller Benutzer nicht gefunden. Kategorien-Pull wird uebersprungen.")
                 return
             }
@@ -289,27 +285,20 @@ class KategorieRepositoryImpl @Inject constructor(
             val artikelRepo = artikelRepositoryProvider.get()
             val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
 
-            // Schritt 1: Sammle alle relevanten Produkt-IDs basierend auf Gruppenverknuepfung ODER privater Nutzung
-            val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
-                .firstOrNull()
-                ?.map { it.gruppeId }
-                ?: emptyList()
-
+            // Schritt 1: Sammle alle relevanten Einkaufslisten-IDs basierend auf Gruppenzugehoerigkeit ODER privater Nutzung
             val relevantEinkaufslistenIds = mutableSetOf<String>()
-            val relevantArtikelIds = mutableSetOf<String>()
+
+            // Hole alle Einkaufslisten, in denen der Benutzer Mitglied ist (oeffentliche Listen)
+            val oeffentlicheEinkaufslisten = einkaufslisteRepo.getAlleOeffentlichenEinkaufslistenSynchronous() // KORRIGIERT
+                .filter { it.mitgliederIds.contains(aktuellerBenutzerId) }
+            relevantEinkaufslistenIds.addAll(oeffentlicheEinkaufslisten.map { it.einkaufslisteId })
+
+            // Hole alle privaten Einkaufslisten des aktuellen Benutzers
+            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslistenSynchronous() // KORRIGIERT
+                .filter { !it.istOeffentlich && it.erstellerId == aktuellerBenutzerId }
+            relevantEinkaufslistenIds.addAll(privateEinkaufslisten.map { it.einkaufslisteId })
+
             val relevantProduktIds = mutableSetOf<String>()
-
-            // 1.1 Finde alle Einkaufslisten, die zu meinen Gruppen gehoeren
-            for (gruppeId in meineGruppenIds) {
-                val einkaufslistenInGruppe = einkaufslisteRepo.getEinkaufslistenByGruppeIdSynchronous(gruppeId)
-                relevantEinkaufslistenIds.addAll(einkaufslistenInGruppe.map { it.einkaufslisteId })
-            }
-
-            // 1.2 Finde alle privaten Einkaufslisten des aktuellen Benutzers
-            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslisten().firstOrNull() ?: emptyList()
-            privateEinkaufslisten.filter { it.erstellerId == aktuellerBenutzerId && it.gruppeId == null }
-                .map { it.einkaufslisteId }
-                .let { relevantEinkaufslistenIds.addAll(it) }
 
             // 1.3 Finde alle Artikel, die zu diesen relevanten Einkaufslisten gehoeren
             for (einkaufslisteId in relevantEinkaufslistenIds) {
@@ -333,8 +322,6 @@ class KategorieRepositoryImpl @Inject constructor(
             firestoreKategorieList.addAll(userOwnedCategoriesSnapshot.toObjects(KategorieEntitaet::class.java))
 
             // B. Kategorien, die mit relevanten Produkten verknuepft sind
-            // Hier muss zuerst die Kategorie-ID aus den relevanten Produkten extrahiert werden,
-            // bevor die Kategorien-Collection abgefragt wird.
             val relevantKategorieIdsFromProducts = mutableSetOf<String>()
             val chunkedRelevantProduktIdsForKategorieLookup = relevantProduktIds.chunked(10)
 
@@ -374,8 +361,9 @@ class KategorieRepositoryImpl @Inject constructor(
                 val lokaleKategorie = localKategorieMap[firestoreKategorie.kategorieId]
                 Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Kategorie: ${firestoreKategorie.name} (ID: ${firestoreKategorie.kategorieId}), Ersteller: ${firestoreKategorie.erstellerId}")
 
+                // Bestimme die Relevanz der Firestore-Kategorie für den Pull
                 val isKategorieRelevantForPull = firestoreKategorie.erstellerId == aktuellerBenutzerId ||
-                        produktRepo.isProduktLinkedToRelevantGroupViaKategorie(firestoreKategorie.kategorieId, meineGruppenIds) ||
+                        produktRepo.isProduktLinkedToRelevantGroupViaKategorie(firestoreKategorie.kategorieId, aktuellerBenutzerId) ||
                         isKategoriePrivateAndOwnedBy(firestoreKategorie.kategorieId, aktuellerBenutzerId)
 
                 if (lokaleKategorie == null) {
@@ -431,20 +419,21 @@ class KategorieRepositoryImpl @Inject constructor(
 
             val uniqueFirestoreKategorieIds = uniqueFirestoreKategorien.map { it.kategorieId }.toSet()
             for (localKategorie in allLocalKategorien) {
+                // Bestimme die Relevanz der lokalen Kategorie fuer den Benutzer
                 val istRelevantFuerBenutzer = localKategorie.erstellerId == aktuellerBenutzerId ||
-                        produktRepo.isProduktLinkedToRelevantGroupViaKategorie(localKategorie.kategorieId, meineGruppenIds) ||
+                        produktRepo.isProduktLinkedToRelevantGroupViaKategorie(localKategorie.kategorieId, aktuellerBenutzerId) ||
                         isKategoriePrivateAndOwnedBy(localKategorie.kategorieId, aktuellerBenutzerId)
 
                 // Lokale Kategorie loeschen, wenn sie nicht mehr in Firestore ist
                 // UND nicht lokal geaendert/vorgemerkt ist
-                // UND nicht relevant fuer diesen Benutzer ist (keine Gruppenverbindung ODER nicht privat/eigen)
+                // UND nicht relevant fuer diesen Benutzer ist (keine Einkaufslisten-Verbindung fuer diesen Benutzer)
                 if (!uniqueFirestoreKategorieIds.contains(localKategorie.kategorieId) &&
                     !localKategorie.istLoeschungVorgemerkt && !localKategorie.istLokalGeaendert &&
                     !istRelevantFuerBenutzer) {
                     kategorieDao.deleteKategorieById(localKategorie.kategorieId)
                     Timber.d("$TAG: Sync Pull: Lokale Kategorie ${localKategorie.name} (ID: ${localKategorie.kategorieId}) GELÖSCHT, da nicht mehr in Firestore vorhanden UND nicht relevant fuer diesen Benutzer UND lokal synchronisiert war.")
                 } else if (istRelevantFuerBenutzer) {
-                    Timber.d("$TAG: Sync Pull: Lokale Kategorie ${localKategorie.name} (ID: ${localKategorie.kategorieId}) BLEIBT LOKAL, da sie noch fuer diesen Benutzer relevant ist (mit relevanter Gruppe verbunden ODER privat/eigen).")
+                    Timber.d("$TAG: Sync Pull: Lokale Kategorie ${localKategorie.name} (ID: ${localKategorie.kategorieId}) BLEIBT LOKAL, da sie noch fuer diesen Benutzer relevant ist (mit relevanter Einkaufsliste verbunden ODER privat/eigen).")
                 } else {
                     Timber.d("$TAG: Sync Pull: Lokale Kategorie ${localKategorie.name} (ID: ${localKategorie.kategorieId}) BLEIBT LOKAL (Grund: ${if(localKategorie.istLokalGeaendert) "lokal geaendert" else if (localKategorie.istLoeschungVorgemerkt) "zur Loeschung vorgemerkt" else "nicht remote gefunden, aber dennoch lokal behalten, da sie nicht als nicht-relevant identifiziert wurde."}).")
                 }

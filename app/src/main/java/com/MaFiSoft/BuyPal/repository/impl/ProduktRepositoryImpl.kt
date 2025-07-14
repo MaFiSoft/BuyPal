@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/ProduktRepositoryImpl.kt
-// Stand: 2025-06-27_12:07:03, Codezeilen: ~590 (Hinzugefuegt: getProdukteByKategorieSynchronous, isProduktLinkedToRelevantGroupViaKategorie, Pull-Sync-Logik korrigiert)
+// Stand: 2025-07-06_09:40:00, Codezeilen: ~600 (Implementierung getProduktByIdSynchronous und Korrektur getAlleOeffentlichenEinkaufslisten)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
@@ -11,7 +11,6 @@ import com.MaFiSoft.BuyPal.data.ProduktDao
 import com.MaFiSoft.BuyPal.data.ProduktEntitaet
 import com.MaFiSoft.BuyPal.repository.ProduktRepository
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
-import com.MaFiSoft.BuyPal.repository.GruppeRepository
 import com.MaFiSoft.BuyPal.repository.ArtikelRepository
 import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
 import com.google.firebase.firestore.FirebaseFirestore
@@ -42,7 +41,6 @@ class ProduktRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val context: Context,
     private val benutzerRepositoryProvider: Provider<BenutzerRepository>,
-    private val gruppeRepositoryProvider: Provider<GruppeRepository>,
     private val artikelRepositoryProvider: Provider<ArtikelRepository>,
     private val einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository>
 ) : ProduktRepository {
@@ -98,6 +96,16 @@ class ProduktRepositoryImpl @Inject constructor(
         return produktDao.getProduktById(produktId)
     }
 
+    /**
+     * NEU: Synchrone Methode zum Abrufen eines Produkts nach ID (fuer interne Repository-Logik)
+     * @param produktId Die ID des abzurufenden Produkts.
+     * @return Die Produkt-Entitaet oder null, falls nicht gefunden.
+     */
+    override suspend fun getProduktByIdSynchronous(produktId: String): ProduktEntitaet? {
+        Timber.d("$TAG: getProduktByIdSynchronous: Abrufen synchrones Produkt fuer ID: $produktId")
+        return produktDao.getProduktByIdSynchronous(produktId)
+    }
+
     override fun getAllProdukte(): Flow<List<ProduktEntitaet>> {
         Timber.d("$TAG: Abrufen aller aktiven Produkte (nicht zur Loeschung vorgemerkt).")
         return produktDao.getAllProdukte()
@@ -121,14 +129,14 @@ class ProduktRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Bestimmt, ob ein Produkt mit einer der relevanten Gruppen des Benutzers verknuepft ist.
-     * Dies ist ein kaskadierender Check: Produkt -> Artikel -> Einkaufsliste -> Gruppe.
+     * Bestimmt, ob ein Produkt mit einer der relevanten Einkaufslisten des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Produkt -> Artikel -> Einkaufsliste.
      *
      * @param produktId Die ID des zu pruefenden Produkts.
-     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
-     * @return True, wenn das Produkt mit einer relevanter Gruppe verknuepft ist, sonst False.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn das Produkt mit einer relevanter Einkaufsliste verknuepft ist, sonst False.
      */
-    override suspend fun isProduktLinkedToRelevantGroup(produktId: String, meineGruppenIds: List<String>): Boolean {
+    override suspend fun isProduktLinkedToRelevantGroup(produktId: String, aktuellerBenutzerId: String): Boolean {
         val artikelRepo = artikelRepositoryProvider.get()
         val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
 
@@ -137,12 +145,16 @@ class ProduktRepositoryImpl @Inject constructor(
 
         for (artikel in artikelDieProduktNutzen) {
             artikel.einkaufslisteId?.let { einkaufslisteId ->
-                val einkaufsliste = einkaufslisteRepo.getEinkaufslisteById(einkaufslisteId).firstOrNull()
-                einkaufsliste?.gruppeId?.let { gruppeId ->
-                    if (meineGruppenIds.contains(gruppeId)) {
-                        Timber.d("$TAG: Produkt '$produktId' ist mit relevanter Gruppe '$gruppeId' ueber Einkaufsliste '$einkaufslisteId' verknuepft.")
-                        return true // Produkt ist mit relevanter Gruppe verknuepft
-                    }
+                // Pruefe, ob die Einkaufsliste oeffentlich ist und der Benutzer Mitglied ist
+                val isEinkaufslistePublicAndMember = einkaufslisteRepo.getAlleOeffentlichenEinkaufslistenSynchronous() // KORRIGIERT
+                    .any { it.einkaufslisteId == einkaufslisteId && it.mitgliederIds.contains(aktuellerBenutzerId) }
+
+                // Pruefe, ob die Einkaufsliste privat ist und dem Benutzer gehoert
+                val isEinkaufslistePrivateAndOwned = einkaufslisteRepo.isEinkaufslistePrivateAndOwnedBy(einkaufslisteId, aktuellerBenutzerId)
+
+                if (isEinkaufslistePublicAndMember || isEinkaufslistePrivateAndOwned) {
+                    Timber.d("$TAG: Produkt '$produktId' ist mit relevanter Einkaufsliste '$einkaufslisteId' verknuepft.")
+                    return true
                 }
             }
         }
@@ -150,14 +162,14 @@ class ProduktRepositoryImpl @Inject constructor(
     }
 
     /**
-     * NEU: Bestimmt, ob ein Produkt indirekt ueber eine Kategorie mit einer der relevanten Gruppen des Benutzers verknuepft ist.
-     * Dies ist ein kaskadierender Check: Kategorie -> Produkt -> Artikel -> Einkaufsliste -> Gruppe.
+     * NEU: Bestimmt, ob ein Produkt indirekt ueber eine Kategorie mit einer der relevanten Einkaufslisten des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Kategorie -> Produkt -> Artikel -> Einkaufsliste.
      *
      * @param kategorieId Die ID der zu pruefenden Kategorie.
-     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
-     * @return True, wenn die Kategorie ueber ein Produkt mit einer relevanter Gruppe verknuepft ist, sonst False.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn die Kategorie ueber ein Produkt mit einer relevanter Einkaufsliste verknuepft ist, sonst False.
      */
-    override suspend fun isProduktLinkedToRelevantGroupViaKategorie(kategorieId: String, meineGruppenIds: List<String>): Boolean {
+    override suspend fun isProduktLinkedToRelevantGroupViaKategorie(kategorieId: String, aktuellerBenutzerId: String): Boolean {
         val produkteDerKategorie = produktDao.getProdukteByKategorieSynchronous(kategorieId)
         val artikelRepo = artikelRepositoryProvider.get()
         val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
@@ -166,8 +178,15 @@ class ProduktRepositoryImpl @Inject constructor(
             val artikelDieProduktNutzen = artikelRepo.getArtikelByProduktIdSynchronous(produkt.produktId)
             for (artikel in artikelDieProduktNutzen) {
                 artikel.einkaufslisteId?.let { einkaufslisteId ->
-                    if (einkaufslisteRepo.isEinkaufslisteLinkedToRelevantGroup(einkaufslisteId, meineGruppenIds)) {
-                        Timber.d("$TAG: Produkt (via Kategorie '$kategorieId') ist mit relevanter Gruppe verknuepft.")
+                    // Pruefe, ob die Einkaufsliste oeffentlich ist und der Benutzer Mitglied ist
+                    val isEinkaufslistePublicAndMember = einkaufslisteRepo.getAlleOeffentlichenEinkaufslistenSynchronous() // KORRIGIERT
+                        .any { it.einkaufslisteId == einkaufslisteId && it.mitgliederIds.contains(aktuellerBenutzerId) }
+
+                    // Pruefe, ob die Einkaufsliste privat ist und dem Benutzer gehoert
+                    val isEinkaufslistePrivateAndOwned = einkaufslisteRepo.isEinkaufslistePrivateAndOwnedBy(einkaufslisteId, aktuellerBenutzerId)
+
+                    if (isEinkaufslistePublicAndMember || isEinkaufslistePrivateAndOwned) {
+                        Timber.d("$TAG: Produkt (via Kategorie '$kategorieId') ist mit relevanter Einkaufsliste verknuepft.")
                         return true
                     }
                 }
@@ -267,15 +286,13 @@ class ProduktRepositoryImpl @Inject constructor(
             return
         }
 
-        val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
-            .firstOrNull()
-            ?.map { it.gruppeId }
-            ?: emptyList()
+        // Die Gruppen-IDs werden nicht mehr direkt hier geholt, da die Einkaufsliste die Gruppenlogik enthaelt.
+        // Stattdessen wird die Relevanz ueber die Einkaufsliste geprueft.
 
         Timber.d("$TAG: Sync Push: Starte Push-Phase fuer Produkte.")
 
         val isProduktRelevantForSync: suspend (ProduktEntitaet) -> Boolean = { produkt ->
-            this.isProduktLinkedToRelevantGroup(produkt.produktId, meineGruppenIds) ||
+            this.isProduktLinkedToRelevantGroup(produkt.produktId, aktuellerBenutzerId) ||
                     this.isProduktPrivateAndOwnedBy(produkt.produktId, aktuellerBenutzerId) // NEU: Auch private, eigene Produkte sind relevant
         }
 
@@ -298,7 +315,7 @@ class ProduktRepositoryImpl @Inject constructor(
                     Timber.d("$TAG: Sync Push: Lokales Produkt (ID: '${produkt.produktId}') nach Firestore-Loeschung (oder Versuch) endgueltig entfernt.")
                 }
             } else {
-                Timber.d("$TAG: Sync Push: Produkt ${produkt.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Lokales Flag 'istLokalGeaendert' zuruecksetzen.")
+                Timber.d("$TAG: Sync Push: Produkt ${produkt.name} (ID: ${firestoreDocId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Einkaufslisten-Verbindung fuer diesen Benutzer). Lokales Flag 'istLokalGeaendert' zuruecksetzen.")
                 produktDao.produktAktualisieren(produkt.copy(istLokalGeaendert = false))
             }
         }
@@ -325,7 +342,7 @@ class ProduktRepositoryImpl @Inject constructor(
                         Timber.e(e, "$TAG: Sync Push: FEHLER beim Hochladen von Produkt ${produkt.name} (ID: ${firestoreDocId}) zu Firestore: ${e.message}.")
                     }
                 } else {
-                    Timber.d("$TAG: Sync Push: Produkt ${produkt.name} (ID: ${firestoreDocId}) ist lokal geaendert, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Kein Upload zu Firestore. Setze istLokalGeaendert zurueck.")
+                    Timber.d("$TAG: Sync Push: Produkt ${produkt.name} (ID: ${firestoreDocId}) ist lokal geaendert, aber nicht relevant fuer Cloud-Sync (keine Einkaufslisten-Verbindung fuer diesen Benutzer). Kein Upload zu Firestore. Setze istLokalGeaendert zurueck.")
                     produktDao.produktAktualisieren(produkt.copy(istLokalGeaendert = false, istLoeschungVorgemerkt = false))
                 }
             } else {
@@ -341,7 +358,7 @@ class ProduktRepositoryImpl @Inject constructor(
     /**
      * Fuehrt den Pull-Synchronisationsprozess fuer Produkte aus.
      * Zieht Produkte von Firestore herunter, die mit Artikeln verknuepft sind,
-     * welche wiederum fuer den aktuellen Benutzer aufgrund seiner Gruppenzugehoerigkeit oder privater Nutzung relevant sind.
+     * welche wiederum fuer den aktuellen Benutzer aufgrund seiner Einkaufslisten-Zugehoerigkeit oder privater Nutzung relevant sind.
      * Die erstellerId des Produkts ist fuer die Sync-Entscheidung irrelevant.
      */
     private suspend fun performPullSync() {
@@ -353,30 +370,25 @@ class ProduktRepositoryImpl @Inject constructor(
                 return
             }
 
-            val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
-                .firstOrNull()
-                ?.map { it.gruppeId }
-                ?: emptyList()
-
             // Benötigte Repository-Instanzen
             val artikelRepo = artikelRepositoryProvider.get()
             val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
 
-            // Schritt 1: Sammle alle relevanten Artikel-IDs basierend auf Gruppenverknuepfung ODER privater Nutzung
+            // Schritt 1: Sammle alle relevanten Einkaufslisten-IDs basierend auf Gruppenzugehoerigkeit ODER privater Nutzung
             val relevantEinkaufslistenIds = mutableSetOf<String>()
-            val relevantProduktIds = mutableSetOf<String>()
 
-            // 1.1 Finde alle Einkaufslisten, die zu meinen Gruppen gehoeren
-            for (gruppeId in meineGruppenIds) {
-                val einkaufslistenInGruppe = einkaufslisteRepo.getEinkaufslistenByGruppeIdSynchronous(gruppeId)
-                relevantEinkaufslistenIds.addAll(einkaufslistenInGruppe.map { it.einkaufslisteId })
-            }
+            // Hole alle Einkaufslisten, in denen der Benutzer Mitglied ist (oeffentliche Listen)
+            val oeffentlicheEinkaufslisten = einkaufslisteRepo.getAlleOeffentlichenEinkaufslistenSynchronous() // KORRIGIERT
+                .filter { it.mitgliederIds.contains(aktuellerBenutzerId) }
+            relevantEinkaufslistenIds.addAll(oeffentlicheEinkaufslisten.map { it.einkaufslisteId })
 
             // NEU: Fuege IDs von privaten Einkaufslisten des aktuellen Benutzers hinzu
-            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslisten().firstOrNull() ?: emptyList()
-            privateEinkaufslisten.filter { it.erstellerId == aktuellerBenutzerId && it.gruppeId == null }
+            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslistenSynchronous() // KORRIGIERT
+            privateEinkaufslisten.filter { it.erstellerId == aktuellerBenutzerId && !it.istOeffentlich }
                 .map { it.einkaufslisteId }
                 .let { relevantEinkaufslistenIds.addAll(it) }
+
+            val relevantProduktIds = mutableSetOf<String>()
 
             // 1.2 Finde alle Artikel, die zu diesen relevanten Einkaufslisten gehoeren
             for (einkaufslisteId in relevantEinkaufslistenIds) {
@@ -413,7 +425,7 @@ class ProduktRepositoryImpl @Inject constructor(
                 val lokalesProdukt = localProduktMap[firestoreProdukt.produktId]
                 Timber.d("$TAG: Sync Pull: Verarbeite Firestore-Produkt: ${firestoreProdukt.name} (ID: ${firestoreProdukt.produktId}), Ersteller: ${firestoreProdukt.erstellerId}")
 
-                val isProduktRelevantForPull = isProduktLinkedToRelevantGroup(firestoreProdukt.produktId, meineGruppenIds) ||
+                val isProduktRelevantForPull = isProduktLinkedToRelevantGroup(firestoreProdukt.produktId, aktuellerBenutzerId) ||
                         isProduktPrivateAndOwnedBy(firestoreProdukt.produktId, aktuellerBenutzerId)
 
                 if (lokalesProdukt == null) {
@@ -464,19 +476,19 @@ class ProduktRepositoryImpl @Inject constructor(
 
             val uniqueFirestoreProduktIds = uniqueFirestoreProdukte.map { it.produktId }.toSet()
             for (localProdukt in allLocalProdukte) {
-                val istRelevantFuerBenutzer = isProduktLinkedToRelevantGroup(localProdukt.produktId, meineGruppenIds) ||
+                val istRelevantFuerBenutzer = isProduktLinkedToRelevantGroup(localProdukt.produktId, aktuellerBenutzerId) ||
                         isProduktPrivateAndOwnedBy(localProdukt.produktId, aktuellerBenutzerId) // NEU: Auch private, eigene Produkte sind relevant
 
                 // Lokales Produkt loeschen, wenn es nicht mehr in Firestore vorhanden ist
                 // UND nicht lokal geaendert/vorgemerkt ist
-                // UND nicht relevant fuer diesen Benutzer ist (keine Gruppenverbindung UND nicht privat/eigen)
+                // UND nicht relevant fuer diesen Benutzer ist (keine Einkaufslisten-Verbindung UND nicht privat/eigen)
                 if (!uniqueFirestoreProduktIds.contains(localProdukt.produktId) &&
                     !localProdukt.istLoeschungVorgemerkt && !localProdukt.istLokalGeaendert &&
                     !istRelevantFuerBenutzer) {
                     produktDao.deleteProduktById(localProdukt.produktId)
                     Timber.d("$TAG: Sync Pull: Lokales Produkt ${localProdukt.name} (ID: ${localProdukt.produktId}) GELÖSCHT, da nicht mehr in Firestore vorhanden UND nicht relevant fuer diesen Benutzer UND lokal synchronisiert war.")
                 } else if (istRelevantFuerBenutzer) {
-                    Timber.d("$TAG: Sync Pull: Lokales Produkt ${localProdukt.name} (ID: ${localProdukt.produktId}) BLEIBT LOKAL, da es noch fuer diesen Benutzer relevant ist (mit relevanter Gruppe verbunden ODER privat/eigen).")
+                    Timber.d("$TAG: Sync Pull: Lokales Produkt ${localProdukt.name} (ID: ${localProdukt.produktId}) BLEIBT LOKAL, da es noch fuer diesen Benutzer relevant ist (mit relevanter Einkaufsliste verbunden ODER privat/eigen).")
                 } else {
                     Timber.d("$TAG: Sync Pull: Lokales Produkt ${localProdukt.name} (ID: ${localProdukt.produktId}) BLEIBT LOKAL (Grund: ${if(localProdukt.istLokalGeaendert) "lokal geaendert" else if (localProdukt.istLoeschungVorgemerkt) "zur Loeschung vorgemerkt" else "nicht remote gefunden, aber dennoch lokal behalten, da es nicht als nicht-relevant identifiziert wurde."}).")
                 }

@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/BenutzerDao.kt
-// Stand: 2025-06-25_00:33:01, Codezeilen: ~50 (Keine direkten Aenderungen noetig nach Entitaetsanpassung)
+// Stand: 2025-07-06_03:15:00, Codezeilen: ~80 (Hinzugefuegt: getBenutzerByIdSynchronous)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -12,8 +12,7 @@ import kotlinx.coroutines.flow.Flow
 
 /**
  * Data Access Object (DAO) fuer die BenutzerEntitaet.
- * Definiert Methoden fuer den Zugriff auf Benutzerdaten in der Room-Datenbank.
- * Angepasst fuer Room-first-Strategie.
+ * Definiert Methoden fuer den Zugriff auf Benutzer-Daten in der Room-Datenbank.
  */
 @Dao
 interface BenutzerDao {
@@ -23,26 +22,25 @@ interface BenutzerDao {
     @Update
     suspend fun benutzerAktualisieren(benutzer: BenutzerEntitaet)
 
-    // Hole Benutzer ueber die eindeutige ID (die jetzt Room-Primärschlüssel und Firestore-ID ist)
     @Query("SELECT * FROM benutzer WHERE benutzerId = :benutzerId")
     fun getBenutzerById(benutzerId: String): Flow<BenutzerEntitaet?>
 
     /**
-     * NEU: Holt einen Benutzer anhand seines Benutzernamens.
-     * Dies wird benoetigt, um bei der Registrierung/Anmeldung zu pruefen, ob ein Benutzername bereits existiert.
-     *
-     * @param benutzername Der Benutzername des abzurufenden Benutzers.
-     * @return Ein Flow, das die Benutzer-Entitaet (oder null) emittiert, falls gefunden.
+     * NEU: Synchrone Methode zum Abrufen eines Benutzers nach ID (fuer interne Repository-Logik).
+     * @param benutzerId Die ID des abzurufenden Benutzers.
+     * @return Die Benutzer-Entitaet (oder null), falls gefunden.
      */
-    @Query("SELECT * FROM benutzer WHERE benutzername = :benutzername LIMIT 1")
+    @Query("SELECT * FROM benutzer WHERE benutzerId = :benutzerId")
+    suspend fun getBenutzerByIdSynchronous(benutzerId: String): BenutzerEntitaet?
+
+    @Query("SELECT * FROM benutzer WHERE benutzername = :benutzername")
     fun getBenutzerByBenutzername(benutzername: String): Flow<BenutzerEntitaet?>
 
-
-    // Holt alle Benutzer, die NICHT zur Loeschung vorgemerkt sind
+    // Holt alle aktiven Benutzer (nicht zur Loeschung vorgemerkt)
     @Query("SELECT * FROM benutzer WHERE istLoeschungVorgemerkt = 0")
     fun getAllBenutzer(): Flow<List<BenutzerEntitaet>>
 
-    // Hole ALLE Benutzer, auch die zur Loeschung vorgemerkten (fuer interne Sync-Logik noetig)
+    // Holt ALLE Benutzer, auch die zur Loeschung vorgemerkten (fuer interne Sync-Logik benoetigt)
     @Query("SELECT * FROM benutzer")
     suspend fun getAllBenutzerIncludingMarkedForDeletion(): List<BenutzerEntitaet>
 
@@ -50,17 +48,29 @@ interface BenutzerDao {
     @Query("SELECT * FROM benutzer WHERE istLokalGeaendert = 1 AND istLoeschungVorgemerkt = 0")
     suspend fun getUnsynchronisierteBenutzer(): List<BenutzerEntitaet>
 
+    // Methode zum Abrufen von Benutzern, die zur Loeschung vorgemerkt sind
     @Query("SELECT * FROM benutzer WHERE istLoeschungVorgemerkt = 1")
     suspend fun getBenutzerFuerLoeschung(): List<BenutzerEntitaet>
 
-    // Loesche Benutzer nach der eindeutigen ID
+    // Loescht einen Benutzer anhand seiner ID endgueltig aus der lokalen Datenbank.
     @Query("DELETE FROM benutzer WHERE benutzerId = :benutzerId")
     suspend fun deleteBenutzerById(benutzerId: String)
 
-    /**
-     * Loescht alle Benutzer aus der Datenbank.
-     * Vorsicht: Diese Methode sollte nur mit Bedacht und im Rahmen der initialen Registrierungslogik verwendet werden.
-     */
+    // Loescht ALLE Benutzer aus der lokalen Datenbank (Vorsicht verwenden!)
     @Query("DELETE FROM benutzer")
     suspend fun deleteAllBenutzer()
+
+    /**
+     * NEU: Holt den aktuell als angemeldet markierten Benutzer.
+     * Es sollte immer nur einen geben, daher LIMIT 1.
+     */
+    @Query("SELECT * FROM benutzer WHERE istAngemeldet = 1 LIMIT 1")
+    fun getAktuellerAngemeldeterBenutzer(): Flow<BenutzerEntitaet?>
+
+    /**
+     * NEU: Markiert alle Benutzer als abgemeldet.
+     * Wird beim Abmelden des aktuellen Benutzers verwendet.
+     */
+    @Query("UPDATE benutzer SET istAngemeldet = 0")
+    suspend fun markiereAlleAlsAbgemeldet()
 }

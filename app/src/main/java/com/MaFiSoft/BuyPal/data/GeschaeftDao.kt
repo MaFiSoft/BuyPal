@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/GeschaeftDao.kt
-// Stand: 2025-06-26_15:30:00, Codezeilen: ~50 (Hinzugefuegt: getAnonymeGeschaefte)
+// Stand: 2025-07-06_09:05:00, Codezeilen: ~55 (Hinzugefuegt: getGeschaeftByIdSynchronous)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -24,6 +24,14 @@ interface GeschaeftDao {
 
     @Query("SELECT * FROM geschaeft WHERE geschaeftId = :geschaeftId")
     fun getGeschaeftById(geschaeftId: String): Flow<GeschaeftEntitaet?>
+
+    /**
+     * NEU: Synchrone Methode zum Abrufen eines Geschaefts nach ID (fuer interne Repository-Logik).
+     * @param geschaeftId Die ID des abzurufenden Geschaefts.
+     * @return Die Geschaeft-Entitaet (oder null), falls gefunden.
+     */
+    @Query("SELECT * FROM geschaeft WHERE geschaeftId = :geschaeftId")
+    suspend fun getGeschaeftByIdSynchronous(geschaeftId: String): GeschaeftEntitaet?
 
     /**
      * Holt alle aktiven Geschaefte (nicht zur Loeschung vorgemerkt).

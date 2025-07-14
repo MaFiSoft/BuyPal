@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/sync/SyncManager.kt
-// Stand: 2025-06-21_04:05:00, Codezeilen: 70 (kategorieRepository.syncKategorienDaten() korrigiert)
+// Stand: 2025-07-06_11:20:00, Codezeilen: ~60 (Gruppe-Abhaengigkeiten entfernt)
 
 package com.MaFiSoft.BuyPal.sync
 
@@ -8,7 +8,6 @@ import com.MaFiSoft.BuyPal.repository.BenutzerRepository
 import com.MaFiSoft.BuyPal.repository.KategorieRepository
 import com.MaFiSoft.BuyPal.repository.ProduktRepository
 import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
-import com.MaFiSoft.BuyPal.repository.GruppeRepository
 import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
 import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository
 import kotlinx.coroutines.CoroutineScope
@@ -29,31 +28,27 @@ class SyncManager @Inject constructor(
     private val kategorieRepository: KategorieRepository,
     private val produktRepository: ProduktRepository,
     private val geschaeftRepository: GeschaeftRepository,
-    private val gruppeRepository: GruppeRepository,
     private val einkaufslisteRepository: EinkaufslisteRepository,
     private val produktGeschaeftVerbindungRepository: ProduktGeschaeftVerbindungRepository
 ) {
-
-    private val TAG = "SyncManager" // Einheitlicher Tag fuer Logging
+    private val syncScope = CoroutineScope(Dispatchers.IO)
+    private val TAG = "SyncManager"
 
     /**
-     * Startet einen vollen Synchronisationsprozess fuer alle Daten.
-     * Dies sollte in einem geeigneten CoroutineScope aufgerufen werden.
+     * Fuehrt einen vollstaendigen Synchronisationsprozess fuer alle relevanten Daten durch.
+     * Dies umfasst das Hochladen lokaler Aenderungen und das Herunterladen von Cloud-Aenderungen.
      */
-    fun startFullSync() {
-        Timber.d("$TAG: Startet vollen Synchronisationsprozess...")
-        CoroutineScope(Dispatchers.IO).launch { // Verwenden Sie Dispatchers.IO fuer Netzwerk- und DB-Operationen
+    fun triggerFullSync() {
+        syncScope.launch {
+            Timber.d("$TAG: Starte vollen Synchronisationsprozess...")
             try {
+                // Die Reihenfolge ist wichtig, um Abhaengigkeiten zu beruecksichtigen
+                // Benutzer sollten zuerst synchronisiert werden, da andere Entitaeten von Benutzer-IDs abhaengen koennen
                 Timber.d("$TAG: Synchronisiere Benutzerdaten...")
                 benutzerRepository.syncBenutzerDaten()
                 Timber.d("$TAG: Benutzerdaten synchronisiert.")
 
-                Timber.d("$TAG: Synchronisiere Gruppendaten...")
-                gruppeRepository.syncGruppenDaten()
-                Timber.d("$TAG: Gruppendaten synchronisiert.")
-
                 Timber.d("$TAG: Synchronisiere Kategoriedaten...")
-                // KORRIGIERT: Methodennamen angepasst auf syncKategorienDaten
                 kategorieRepository.syncKategorienDaten()
                 Timber.d("$TAG: Kategoriedaten synchronisiert.")
 
@@ -70,7 +65,6 @@ class SyncManager @Inject constructor(
                 Timber.d("$TAG: Einkaufslistendaten synchronisiert.")
 
                 Timber.d("$TAG: Synchronisiere Produkt-Geschaeft-Verbindungsdaten...")
-                // Bestätigt: Methode heißt syncVerbindungDaten im Interface
                 produktGeschaeftVerbindungRepository.syncProduktGeschaeftVerbindungDaten()
                 Timber.d("$TAG: Produkt-Geschaeft-Verbindungsdaten synchronisiert.")
 

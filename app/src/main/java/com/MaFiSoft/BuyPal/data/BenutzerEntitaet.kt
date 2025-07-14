@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/BenutzerEntitaet.kt
-// Stand: 2025-06-25_00:33:00, Codezeilen: ~47 (Hinzufuegen von eindeutigerHash)
+// Stand: 2025-07-03_15:20:00, Codezeilen: ~50 (Feld 'istAngemeldet' hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -28,6 +28,7 @@ import java.util.Date
  * @param zuletztGeaendert Zeitstempel der letzten Aenderung des Benutzers. Wird manuell/automatisch gesetzt fuer Last-Write-Wins.
  * @param istLokalGeaendert Flag, das angibt, ob der Benutzer lokal geaendert wurde und ein Sync notwendig ist.
  * @param istLoeschungVorgemerkt Flag, das anzeigt, dass der Benutzer zum Loeschen vorgemerkt ist (Soft Delete).
+ * @param istAngemeldet NEU: Flag, das anzeigt, ob dieser Benutzer aktuell auf diesem Geraet angemeldet ist.
  */
 @Entity(tableName = "benutzer") // Name der Tabelle in Room
 data class BenutzerEntitaet(
@@ -47,5 +48,7 @@ data class BenutzerEntitaet(
     @get:Exclude // Diese Felder sollen NICHT in Firestore gespeichert werden, nur lokal.
     val istLokalGeaendert: Boolean = false,
     @get:Exclude // Diese Felder sollen NICHT in Firestore gespeichert werden, nur lokal.
-    val istLoeschungVorgemerkt: Boolean = false
+    val istLoeschungVorgemerkt: Boolean = false,
+    @get:Exclude // Dieses Feld soll NICHT in Firestore gespeichert werden, nur lokal.
+    val istAngemeldet: Boolean = false // NEU: Flag fuer den Anmeldestatus
 )

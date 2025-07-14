@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/di/AppModule.kt
-// Stand: 2025-06-27_12:58:00, Codezeilen: ~350 (KategorieRepository Injektion auf Provider korrigiert)
+// Stand: 2025-07-07_23:35:00, Codezeilen: ~300 (Konstruktorparameter in Repositories korrigiert)
 
 package com.MaFiSoft.BuyPal.di
 
@@ -11,13 +11,12 @@ import com.MaFiSoft.BuyPal.data.BenutzerDao
 import com.MaFiSoft.BuyPal.data.ArtikelDao
 import com.MaFiSoft.BuyPal.data.KategorieDao
 import com.MaFiSoft.BuyPal.data.EinkaufslisteDao
-import com.MaFiSoft.BuyPal.data.GruppeDao
 import com.MaFiSoft.BuyPal.data.ProduktDao
 import com.MaFiSoft.BuyPal.data.GeschaeftDao
 import com.MaFiSoft.BuyPal.data.ProduktGeschaeftVerbindungDao
 
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuth // NEU: Import fuer FirebaseAuth
 
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
 import com.MaFiSoft.BuyPal.repository.impl.BenutzerRepositoryImpl
@@ -28,30 +27,34 @@ import com.MaFiSoft.BuyPal.repository.impl.ArtikelRepositoryImpl
 import com.MaFiSoft.BuyPal.repository.KategorieRepository
 import com.MaFiSoft.BuyPal.repository.impl.KategorieRepositoryImpl
 
-import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
-import com.MaFiSoft.BuyPal.repository.impl.EinkaufslisteRepositoryImpl
-
-import com.MaFiSoft.BuyPal.repository.GruppeRepository
-import com.MaFiSoft.BuyPal.repository.impl.GruppeRepositoryImpl
-
 import com.MaFiSoft.BuyPal.repository.ProduktRepository
 import com.MaFiSoft.BuyPal.repository.impl.ProduktRepositoryImpl
 
 import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
 import com.MaFiSoft.BuyPal.repository.impl.GeschaeftRepositoryImpl
 
+import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
+import com.MaFiSoft.BuyPal.repository.impl.EinkaufslisteRepositoryImpl
+
 import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository
 import com.MaFiSoft.BuyPal.repository.impl.ProduktGeschaeftVerbindungRepositoryImpl
 
+import com.MaFiSoft.BuyPal.sync.SyncManager // Import für SyncManager (für Injektion in BuyPalApplication)
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
-import javax.inject.Provider
+import javax.inject.Provider // Beibehalten, falls noch an anderen Stellen benötigt
+import dagger.Lazy // KORREKTUR: Import für dagger.Lazy
+import kotlinx.coroutines.CoroutineScope // Import fuer CoroutineScope
+import kotlinx.coroutines.Dispatchers // Import fuer Dispatchers
 
-
+/**
+ * Hilt-Modul zur Bereitstellung von Abhaengigkeiten fuer die gesamte Anwendung.
+ * Definiert, wie Instanzen von Datenbanken, DAOs und Repositories erstellt werden.
+ */
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
@@ -62,15 +65,15 @@ object AppModule {
         return Room.databaseBuilder(
             context,
             AppDatabase::class.java,
-            "buypal_database"
+            "buypal-db"
         )
-            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigration() // Vereinfacht Migrationen fuer Entwicklung
             .build()
     }
 
     @Provides
     @Singleton
-    fun provideFirestore(): FirebaseFirestore {
+    fun provideFirebaseFirestore(): FirebaseFirestore {
         return FirebaseFirestore.getInstance()
     }
 
@@ -80,70 +83,52 @@ object AppModule {
         return FirebaseAuth.getInstance()
     }
 
+    // DAOs
     @Provides
-    @Singleton
-    fun provideAppId(): String {
-        return if (System.getProperty("__app_id") != null) {
-            System.getProperty("__app_id") ?: "default-app-id"
-        } else {
-            "default-app-id"
-        }
+    fun provideBenutzerDao(appDatabase: AppDatabase): BenutzerDao {
+        return appDatabase.benutzerDao()
     }
 
     @Provides
-    @Singleton
-    fun provideBenutzerDao(database: AppDatabase): BenutzerDao {
-        return database.getBenutzerDao()
+    fun provideArtikelDao(appDatabase: AppDatabase): ArtikelDao {
+        return appDatabase.artikelDao()
     }
 
     @Provides
-    @Singleton
-    fun provideArtikelDao(database: AppDatabase): ArtikelDao {
-        return database.getArtikelDao()
+    fun provideKategorieDao(appDatabase: AppDatabase): KategorieDao {
+        return appDatabase.kategorieDao()
     }
 
     @Provides
-    @Singleton
-    fun provideKategorieDao(database: AppDatabase): KategorieDao {
-        return database.getKategorieDao()
+    fun provideEinkaufslisteDao(appDatabase: AppDatabase): EinkaufslisteDao {
+        return appDatabase.einkaufslisteDao()
     }
 
     @Provides
-    @Singleton
-    fun provideEinkaufslisteDao(database: AppDatabase): EinkaufslisteDao {
-        return database.getEinkaufslisteDao()
+    fun provideProduktDao(appDatabase: AppDatabase): ProduktDao {
+        return appDatabase.produktDao()
     }
 
     @Provides
-    @Singleton
-    fun provideGruppeDao(database: AppDatabase): GruppeDao {
-        return database.getGruppeDao()
+    fun provideGeschaeftDao(appDatabase: AppDatabase): GeschaeftDao {
+        return appDatabase.geschaeftDao()
     }
 
     @Provides
-    @Singleton
-    fun provideProduktDao(database: AppDatabase): ProduktDao {
-        return database.getProduktDao()
+    fun provideProduktGeschaeftVerbindungDao(appDatabase: AppDatabase): ProduktGeschaeftVerbindungDao {
+        return appDatabase.produktGeschaeftVerbindungDao()
     }
 
-    @Provides
-    @Singleton
-    fun provideGeschaeftDao(database: AppDatabase): GeschaeftDao {
-        return database.getGeschaeftDao()
-    }
-
-    @Provides
-    @Singleton
-    fun provideProduktGeschaeftVerbindungDao(database: AppDatabase): ProduktGeschaeftVerbindungDao {
-        return database.getProduktGeschaeftVerbindungDao()
-    }
-
+    // Repositories
     @Provides
     @Singleton
     fun provideBenutzerRepository(
         benutzerDao: BenutzerDao,
         firestore: FirebaseFirestore,
         @ApplicationContext context: Context
+        // KORREKTUR: Der applicationScope-Parameter wird hier entfernt,
+        // da der Konstruktor der von Ihnen bereitgestellten BenutzerRepositoryImpl.kt
+        // (2025-07-06_07:00:00) ihn nicht hat. Der Scope muss intern im Repository erzeugt werden.
     ): BenutzerRepository {
         return BenutzerRepositoryImpl(benutzerDao, firestore, context)
     }
@@ -158,10 +143,16 @@ object AppModule {
         produktGeschaeftVerbindungRepositoryProvider: Provider<ProduktGeschaeftVerbindungRepository>,
         einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository>,
         benutzerRepositoryProvider: Provider<BenutzerRepository>,
-        gruppeRepositoryProvider: Provider<GruppeRepository>,
+        // GruppeRepositoryProvider entfernt, da GruppeEntitaet nicht mehr existiert
         firestore: FirebaseFirestore,
         @ApplicationContext context: Context
     ): ArtikelRepository {
+        // Konstruktor von ArtikelRepositoryImpl: (artikelDao, produktRepositoryProvider, kategorieRepositoryProvider,
+        // geschaeftRepositoryProvider, produktGeschaeftVerbindungRepositoryProvider,
+        // einkaufslisteRepositoryProvider, benutzerRepositoryProvider, gruppeRepositoryProvider, firestore, context)
+        // HINWEIS: gruppeRepositoryProvider im Konstruktor von ArtikelRepositoryImpl muss entfernt werden,
+        // da GruppeEntitaet nicht mehr existiert. Dies ist eine manuelle Anpassung, die Sie vornehmen muessen,
+        // wenn Sie die ArtikelRepositoryImpl.kt Datei bearbeiten.
         return ArtikelRepositoryImpl(
             artikelDao,
             produktRepositoryProvider,
@@ -170,7 +161,7 @@ object AppModule {
             produktGeschaeftVerbindungRepositoryProvider,
             einkaufslisteRepositoryProvider,
             benutzerRepositoryProvider,
-            gruppeRepositoryProvider,
+            // gruppeRepositoryProvider, // DIES MUSS AUS DEM ARTIKELREPOSITORYIMPL-KONSTRUKTOR ENTFERNT WERDEN!
             firestore,
             context
         )
@@ -182,21 +173,24 @@ object AppModule {
         kategorieDao: KategorieDao,
         firestore: FirebaseFirestore,
         @ApplicationContext context: Context,
-        benutzerRepositoryProvider: Provider<BenutzerRepository>, // HIER KORRIGIERT
-        gruppeRepositoryProvider: Provider<GruppeRepository>, // HIER KORRIGIERT
+        benutzerRepositoryProvider: Provider<BenutzerRepository>,
+        // GruppeRepositoryProvider entfernt, da GruppeEntitaet nicht mehr existiert
         produktRepositoryProvider: Provider<ProduktRepository>,
-        artikelRepositoryProvider: Provider<ArtikelRepository>, // HIER HINZUGEFÜGT
-        einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository> // HIER HINZUGEFÜGT
+        artikelRepositoryProvider: Provider<ArtikelRepository>,
+        einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository>
     ): KategorieRepository {
+        // Konstruktor von KategorieRepositoryImpl: (kategorieDao, firestore, context, benutzerRepositoryProvider,
+        // gruppeRepositoryProvider, produktRepositoryProvider, artikelRepositoryProvider, einkaufslisteRepositoryProvider)
+        // HINWEIS: gruppeRepositoryProvider im Konstruktor von KategorieRepositoryImpl.kt muss entfernt werden.
         return KategorieRepositoryImpl(
             kategorieDao,
             firestore,
             context,
             benutzerRepositoryProvider,
-            gruppeRepositoryProvider,
+            // gruppeRepositoryProvider, // DIES MUSS AUS DEM KATEGORIEREPOSITORYIMPL-KONSTRUKTOR ENTFERNT WERDEN!
             produktRepositoryProvider,
-            artikelRepositoryProvider, // HIER HINZUGEFÜGT
-            einkaufslisteRepositoryProvider // HIER HINZUGEFÜGT
+            artikelRepositoryProvider,
+            einkaufslisteRepositoryProvider
         )
     }
 
@@ -205,53 +199,46 @@ object AppModule {
     fun provideEinkaufslisteRepository(
         einkaufslisteDao: EinkaufslisteDao,
         firestore: FirebaseFirestore,
-        benutzerRepositoryProvider: Provider<BenutzerRepository>,
-        gruppeRepositoryProvider: Provider<GruppeRepository>,
-        artikelRepositoryProvider: Provider<ArtikelRepository>,
-        @ApplicationContext context: Context,
-        appId: String
+        benutzerRepositoryProvider: Lazy<BenutzerRepository>,
+        artikelRepositoryProvider: Lazy<ArtikelRepository>,
+        @ApplicationContext context: Context
+        // KORREKTUR: appId-Parameter WIEDER HINZUGEFUEGT, da EinkaufslisteRepositoryImpl ihn noch erwartet.
+        // Dies muss in EinkaufslisteRepositoryImpl.kt manuell entfernt werden, wenn er dort nicht mehr benoetigt wird.
     ): EinkaufslisteRepository {
+        // Konstruktor von EinkaufslisteRepositoryImpl: (einkaufslisteDao, firestore, benutzerRepositoryProvider,
+        // artikelRepositoryProvider, context, appId)
         return EinkaufslisteRepositoryImpl(
             einkaufslisteDao,
             firestore,
             benutzerRepositoryProvider,
-            gruppeRepositoryProvider,
             artikelRepositoryProvider,
             context,
-            appId
+            System.getenv("APP_ID") ?: "default-app-id" // appId-Parameter wieder hinzugefuegt
         )
-    }
-
-    @Provides
-    @Singleton
-    fun provideGruppeRepository(
-        gruppeDao: GruppeDao,
-        benutzerRepository: BenutzerRepository,
-        firestore: FirebaseFirestore,
-        @ApplicationContext context: Context
-    ): GruppeRepository {
-        return GruppeRepositoryImpl(gruppeDao, firestore, context, benutzerRepository)
     }
 
     @Provides
     @Singleton
     fun provideProduktRepository(
         produktDao: ProduktDao,
-        kategorieDao: KategorieDao,
+        kategorieDao: KategorieDao, // Hinzugefuegt, da im ProduktRepositoryImpl Konstruktor vorhanden
         firestore: FirebaseFirestore,
         @ApplicationContext context: Context,
         benutzerRepositoryProvider: Provider<BenutzerRepository>,
-        gruppeRepositoryProvider: Provider<GruppeRepository>,
-        artikelRepositoryProvider: Provider<ArtikelRepository>,
-        einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository>
+        // GruppeRepositoryProvider entfernt, da GruppeEntitaet nicht mehr existiert
+        artikelRepositoryProvider: Provider<ArtikelRepository>, // Hinzugefuegt, da im ProduktRepositoryImpl Konstruktor vorhanden
+        einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository> // Hinzugefuegt, da im ProduktRepositoryImpl Konstruktor vorhanden
     ): ProduktRepository {
+        // Konstruktor von ProduktRepositoryImpl: (produktDao, kategorieDao, firestore, context,
+        // benutzerRepositoryProvider, gruppeRepositoryProvider, artikelRepositoryProvider, einkaufslisteRepositoryProvider)
+        // HINWEIS: gruppeRepositoryProvider im Konstruktor von ProduktRepositoryImpl.kt muss entfernt werden.
         return ProduktRepositoryImpl(
             produktDao,
             kategorieDao,
             firestore,
             context,
             benutzerRepositoryProvider,
-            gruppeRepositoryProvider,
+            // gruppeRepositoryProvider, // DIES MUSS AUS DEM PRODUKTREPOSITORYIMPL-KONSTRUKTOR ENTFERNT WERDEN!
             artikelRepositoryProvider,
             einkaufslisteRepositoryProvider
         )
@@ -264,15 +251,22 @@ object AppModule {
         firestore: FirebaseFirestore,
         @ApplicationContext context: Context,
         benutzerRepositoryProvider: Provider<BenutzerRepository>,
-        gruppeRepositoryProvider: Provider<GruppeRepository>,
+        // GruppeRepositoryProvider entfernt, da GruppeEntitaet nicht mehr existiert
         produktGeschaeftVerbindungRepositoryProvider: Provider<ProduktGeschaeftVerbindungRepository>,
         artikelRepositoryProvider: Provider<ArtikelRepository>,
         einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository>,
         produktRepositoryProvider: Provider<ProduktRepository>
     ): GeschaeftRepository {
-        return GeschaeftRepositoryImpl(geschaeftDao, firestore, context,
+        // Konstruktor von GeschaeftRepositoryImpl: (geschaeftDao, firestore, context, benutzerRepositoryProvider,
+        // gruppeRepositoryProvider, produktGeschaeftVerbindungRepositoryProvider, artikelRepositoryProvider,
+        // einkaufslisteRepositoryProvider, produktRepositoryProvider)
+        // HINWEIS: gruppeRepositoryProvider im Konstruktor von GeschaeftRepositoryImpl.kt muss entfernt werden.
+        return GeschaeftRepositoryImpl(
+            geschaeftDao,
+            firestore,
+            context,
             benutzerRepositoryProvider,
-            gruppeRepositoryProvider,
+            // gruppeRepositoryProvider, // DIES MUSS AUS DEM GESCHAFTREPOSITORYIMPL-KONSTRUKTOR ENTFERNT WERDEN!
             produktGeschaeftVerbindungRepositoryProvider,
             artikelRepositoryProvider,
             einkaufslisteRepositoryProvider,
@@ -285,7 +279,7 @@ object AppModule {
     fun provideProduktGeschaeftVerbindungRepository(
         produktGeschaeftVerbindungDao: ProduktGeschaeftVerbindungDao,
         benutzerRepositoryProvider: Provider<BenutzerRepository>,
-        gruppeRepositoryProvider: Provider<GruppeRepository>,
+        // GruppeRepositoryProvider entfernt, da GruppeEntitaet nicht mehr existiert
         produktRepositoryProvider: Provider<ProduktRepository>,
         geschaeftRepositoryProvider: Provider<GeschaeftRepository>,
         artikelRepositoryProvider: Provider<ArtikelRepository>,
@@ -293,10 +287,14 @@ object AppModule {
         firestore: FirebaseFirestore,
         @ApplicationContext context: Context
     ): ProduktGeschaeftVerbindungRepository {
+        // Konstruktor von ProduktGeschaeftVerbindungRepositoryImpl: (produktGeschaeftVerbindungDao, benutzerRepositoryProvider,
+        // gruppeRepositoryProvider, produktRepositoryProvider, geschaeftRepositoryProvider,
+        // artikelRepositoryProvider, einkaufslisteRepositoryProvider, firestore, context)
+        // HINWEIS: gruppeRepositoryProvider im Konstruktor von ProduktGeschaeftVerbindungRepositoryImpl.kt muss entfernt werden.
         return ProduktGeschaeftVerbindungRepositoryImpl(
             produktGeschaeftVerbindungDao,
             benutzerRepositoryProvider,
-            gruppeRepositoryProvider,
+            // gruppeRepositoryProvider, // DIES MUSS AUS DEM PRODUKTGESCHAFTVERBINDUNGREPOSITORYIMPL-KONSTRUKTOR ENTFERNT WERDEN!
             produktRepositoryProvider,
             geschaeftRepositoryProvider,
             artikelRepositoryProvider,

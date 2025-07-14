@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/ui/screens/ProduktTestUI.kt
-// Stand: 2025-06-24_04:15:00, Codezeilen: ~270 (istOeffentlich entfernt, Design und Logik angepasst)
+// Stand: 2025-07-08_20:30:00, Codezeilen: ~270 (Ohne Scaffold, empfaengt PaddingValues)
 
 package com.MaFiSoft.BuyPal.ui.screens
 
@@ -35,6 +35,7 @@ import java.util.Date
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProduktTestUI(
+    paddingValues: PaddingValues, // NEU: PaddingValues vom globalen Scaffold
     produktViewModel: ProduktViewModel = hiltViewModel(), // Default hiltViewModel
     kategorieViewModel: KategorieViewModel = hiltViewModel(), // Default hiltViewModel
     benutzerViewModel: BenutzerViewModel = hiltViewModel() // Injiziere BenutzerViewModel fuer erstellerId
@@ -84,206 +85,233 @@ fun ProduktTestUI(
     }
 
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text("Produkt Test UI") },
-                actions = {
-                    IconButton(onClick = {
-                        coroutineScope.launch {
-                            produktViewModel.syncProdukteDaten()
-                        }
-                    }) {
-                        Icon(Icons.Filled.Refresh, "Synchronisieren")
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp, vertical = 8.dp), // Konsistentes Padding
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Eingabefeld für Produktname
-            OutlinedTextField(
-                value = produktName,
-                onValueChange = { produktName = it },
-                label = { Text(if (isNameFocused || produktName.isNotEmpty()) "Produktname" else "Produktname eingeben") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged { isNameFocused = it.isFocused }
-                    .border(
-                        width = if (isNameFocused) 2.dp else 1.dp,
-                        color = if (isNameFocused) MaterialTheme.colorScheme.primary else Color.LightGray,
-                        shape = RoundedCornerShape(8.dp)
-                    ),
-                shape = RoundedCornerShape(8.dp),
-                singleLine = true,
-                colors = TextFieldDefaults.outlinedTextFieldColors(
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    cursorColor = MaterialTheme.colorScheme.primary,
-                    containerColor = Color.White
-                )
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Eingabefeld für Beschreibung
-            OutlinedTextField(
-                value = produktBeschreibung,
-                onValueChange = { produktBeschreibung = it },
-                label = { Text(if (isBeschreibungFocused || produktBeschreibung.isNotEmpty()) "Beschreibung (optional)" else "Beschreibung eingeben") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged { isBeschreibungFocused = it.isFocused }
-                    .border(
-                        width = if (isBeschreibungFocused) 2.dp else 1.dp,
-                        color = if (isBeschreibungFocused) MaterialTheme.colorScheme.primary else Color.LightGray,
-                        shape = RoundedCornerShape(8.dp)
-                    ),
-                shape = RoundedCornerShape(8.dp),
-                singleLine = true,
-                colors = TextFieldDefaults.outlinedTextFieldColors(
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    cursorColor = MaterialTheme.colorScheme.primary,
-                    containerColor = Color.White
-                )
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Dropdown fuer Kategorie
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(
-                        width = 1.dp,
-                        color = if (expanded) MaterialTheme.colorScheme.primary else Color.LightGray, // Blauer Rand, wenn offen
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .background(Color.White, RoundedCornerShape(8.dp)) // Hintergrund
-            ) {
-                OutlinedTextField( // Hier OutlinedTextField statt TextField
-                    value = alleKategorien.find { it.kategorieId == produktKategorieId }?.name ?: "Kategorie auswählen",
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Kategorie (optional)") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp), // Abgerundete Ecken
-                    colors = TextFieldDefaults.outlinedTextFieldColors(
-                        focusedBorderColor = Color.Transparent, // Border wird vom Modifier gesteuert
-                        unfocusedBorderColor = Color.Transparent,
-                        cursorColor = MaterialTheme.colorScheme.primary,
-                        containerColor = Color.White // Hintergrund weiß
-                    )
-                )
-
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false },
-                    modifier = Modifier.fillMaxWidth(0.9f) // Anpassen der Breite des Dropdowns
-                ) {
-                    if (alleKategorien.isEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("Keine Kategorien verfuegbar. Bitte zuerst Kategorien erstellen.") },
-                            onClick = { /* Nichts tun */ }
-                        )
-                    } else {
-                        alleKategorien.forEach { kategorie ->
-                            DropdownMenuItem(
-                                text = { Text(kategorie.name) },
-                                onClick = {
-                                    produktKategorieId = kategorie.kategorieId
-                                    expanded = false
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Kategorie '${kategorie.name}' ausgewaehlt.")
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // istOeffentlich-Checkbox entfernt
-
-            Button(
-                onClick = {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues) // Padding vom globalen Scaffold anwenden
+            .padding(horizontal = 16.dp, vertical = 8.dp), // Konsistentes Padding
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        TopAppBar( // TopAppBar bleibt hier
+            title = { Text("Produkt Test UI") },
+            actions = {
+                IconButton(onClick = {
                     coroutineScope.launch {
-                        if (produktName.isNotBlank() && aktuellerBenutzer != null) { // Name muss vorhanden sein, Benutzer muss angemeldet sein
-                            if (bearbeiteProdukt != null) {
-                                // Produkt aktualisieren
-                                val updatedProdukt = bearbeiteProdukt!!.copy(
-                                    name = produktName,
-                                    beschreibung = produktBeschreibung.takeIf { it.isNotBlank() },
-                                    kategorieId = produktKategorieId.takeIf { it.isNotBlank() }
-                                )
-                                produktViewModel.produktSpeichern(updatedProdukt) // produktSpeichern handhabt Updates
-                                bearbeiteProdukt = null // Bearbeitungsmodus beenden
-                                // Felder zuruecksetzen nach Bearbeitung
-                                produktName = ""
-                                produktBeschreibung = ""
-                                produktKategorieId = ""
-                            } else {
-                                // Neues Produkt erstellen
-                                produktViewModel.createProdukt(
-                                    name = produktName,
-                                    kategorieId = produktKategorieId.takeIf { it.isNotBlank() }
-                                )
-                                produktName = ""
-                                produktBeschreibung = ""
-                                produktKategorieId = ""
-                            }
-                        } else if (produktName.isBlank()) {
-                            snackbarHostState.showSnackbar("Name des Produkts darf nicht leer sein.")
-                        } else if (aktuellerBenutzer == null) {
-                            snackbarHostState.showSnackbar("Bitte melden Sie sich an, um Produkte zu erstellen.")
-                        }
+                        produktViewModel.syncProdukteDaten()
                     }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = produktName.isNotBlank() && aktuellerBenutzer != null // Aktivieren, wenn Name nicht leer UND Benutzer angemeldet
-            ) {
-                Text(if (bearbeiteProdukt != null) "Änderungen Speichern" else "Produkt Hinzufügen")
+                }) {
+                    Icon(Icons.Filled.Refresh, "Synchronisieren")
+                }
             }
+        )
+        Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) // Trennlinie
-            Spacer(modifier = Modifier.height(8.dp))
+        // Eingabefeld für Produktname
+        OutlinedTextField(
+            value = produktName,
+            onValueChange = { produktName = it },
+            label = { Text(if (isNameFocused || produktName.isNotEmpty()) "Produktname" else "Produktname eingeben") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { isNameFocused = it.isFocused }
+                .border(
+                    width = if (isNameFocused) 2.dp else 1.dp,
+                    color = if (isNameFocused) MaterialTheme.colorScheme.primary else Color.LightGray,
+                    shape = RoundedCornerShape(8.dp)
+                ),
+            shape = RoundedCornerShape(8.dp),
+            singleLine = true,
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+                cursorColor = MaterialTheme.colorScheme.primary,
+                containerColor = Color.White
+            )
+        )
+        Spacer(modifier = Modifier.height(8.dp))
 
-            Text("Gespeicherte Produkte:", style = MaterialTheme.typography.headlineSmall)
-            Spacer(modifier = Modifier.height(8.dp))
+        // Eingabefeld für Beschreibung
+        OutlinedTextField(
+            value = produktBeschreibung,
+            onValueChange = { produktBeschreibung = it },
+            label = { Text(if (isBeschreibungFocused || produktBeschreibung.isNotEmpty()) "Beschreibung (optional)" else "Beschreibung eingeben") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { isBeschreibungFocused = it.isFocused }
+                .border(
+                    width = if (isBeschreibungFocused) 2.dp else 1.dp,
+                    color = if (isBeschreibungFocused) MaterialTheme.colorScheme.primary else Color.LightGray,
+                    shape = RoundedCornerShape(8.dp)
+                ),
+            shape = RoundedCornerShape(8.dp),
+            singleLine = true,
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+                cursorColor = MaterialTheme.colorScheme.primary,
+                containerColor = Color.White
+            )
+        )
+        Spacer(modifier = Modifier.height(8.dp))
 
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                items(alleProdukte, key = { it.produktId }) { produkt ->
-                    Card(
+        // Dropdown fuer Kategorie
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = !expanded },
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    width = 1.dp,
+                    color = if (expanded) MaterialTheme.colorScheme.primary else Color.LightGray, // Blauer Rand, wenn offen
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .background(Color.White, RoundedCornerShape(8.dp)) // Hintergrund
+        ) {
+            OutlinedTextField( // Hier OutlinedTextField statt TextField
+                value = alleKategorien.find { it.kategorieId == produktKategorieId }?.name ?: "Kategorie auswählen",
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Kategorie (optional)") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp), // Abgerundete Ecken
+                colors = TextFieldDefaults.outlinedTextFieldColors(
+                    focusedBorderColor = Color.Transparent, // Border wird vom Modifier gesteuert
+                    unfocusedBorderColor = Color.Transparent,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                    containerColor = Color.White // Hintergrund weiß
+                )
+            )
+
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.fillMaxWidth(0.9f) // Anpassen der Breite des Dropdowns
+            ) {
+                if (alleKategorien.isEmpty()) {
+                    DropdownMenuItem(
+                        text = { Text("Keine Kategorien verfuegbar. Bitte zuerst Kategorien erstellen.") },
+                        onClick = { /* Nichts tun */ }
+                    )
+                } else {
+                    alleKategorien.forEach { kategorie ->
+                        DropdownMenuItem(
+                            text = { Text(kategorie.name) },
+                            onClick = {
+                                produktKategorieId = kategorie.kategorieId
+                                expanded = false
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Kategorie '${kategorie.name}' ausgewaehlt.")
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // istOeffentlich-Checkbox entfernt
+
+        Button(
+            onClick = {
+                coroutineScope.launch {
+                    if (produktName.isNotBlank() && aktuellerBenutzer != null) { // Name muss vorhanden sein, Benutzer muss angemeldet sein
+                        if (bearbeiteProdukt != null) {
+                            // Produkt aktualisieren
+                            val updatedProdukt = bearbeiteProdukt!!.copy(
+                                name = produktName,
+                                beschreibung = produktBeschreibung.takeIf { it.isNotBlank() },
+                                kategorieId = produktKategorieId.takeIf { it.isNotBlank() }
+                            )
+                            produktViewModel.produktSpeichern(updatedProdukt) // produktSpeichern handhabt Updates
+                            bearbeiteProdukt = null // Bearbeitungsmodus beenden
+                            // Felder zuruecksetzen nach Bearbeitung
+                            produktName = ""
+                            produktBeschreibung = ""
+                            produktKategorieId = ""
+                        } else {
+                            // Neues Produkt erstellen
+                            produktViewModel.createProdukt(
+                                name = produktName,
+                                kategorieId = produktKategorieId.takeIf { it.isNotBlank() }
+                            )
+                            produktName = ""
+                            produktBeschreibung = ""
+                            produktKategorieId = ""
+                        }
+                    } else if (produktName.isBlank()) {
+                        snackbarHostState.showSnackbar("Name des Produkts darf nicht leer sein.")
+                    } else if (aktuellerBenutzer == null) {
+                        snackbarHostState.showSnackbar("Bitte melden Sie sich an, um Produkte zu erstellen.")
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = produktName.isNotBlank() && aktuellerBenutzer != null // Aktivieren, wenn Name nicht leer UND Benutzer angemeldet
+        ) {
+            Text(if (bearbeiteProdukt != null) "Änderungen Speichern" else "Produkt Hinzufügen")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) // Trennlinie
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text("Gespeicherte Produkte:", style = MaterialTheme.typography.headlineSmall)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+            items(alleProdukte, key = { it.produktId }) { produkt ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .background(
+                            color = Color(0xFFE3F2FD), // Helles Blau als Hintergrund
+                            shape = RoundedCornerShape(8.dp)
+                        ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Column( // Changed from Row to Column for better vertical space for details
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .background(
-                                color = Color(0xFFE3F2FD), // Helles Blau als Hintergrund
-                                shape = RoundedCornerShape(8.dp)
-                            ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        shape = RoundedCornerShape(8.dp)
+                            .clickable {
+                                // Zum Bearbeiten laden
+                                bearbeiteProdukt = produkt
+                                // Felder manuell befuellen, da der LaunchedEffect nicht sofort triggert
+                                produktName = produkt.name
+                                produktBeschreibung = produkt.beschreibung ?: ""
+                                produktKategorieId = produkt.kategorieId ?: ""
+
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Produkt '${produkt.name}' zum Bearbeiten geladen.")
+                                }
+                            }
+                            .padding(16.dp)
                     ) {
-                        Column( // Changed from Row to Column for better vertical space for details
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    // Zum Bearbeiten laden
-                                    bearbeiteProdukt = produkt
-                                    // Felder manuell befuellen, da der LaunchedEffect nicht sofort triggert
+                        Text("ID: ${produkt.produktId}") // Volle ID fuer Testzwecke
+                        Text("Name: ${produkt.name}")
+                        produkt.beschreibung?.let { Text("Beschreibung: $it") }
+                        val kategorieName = alleKategorien.find { it.kategorieId == produkt.kategorieId }?.name ?: "N/A"
+                        Text("Kategorie: ${kategorieName} (ID: ${produkt.kategorieId ?: "N/A"})") // Anzeige der Kategorie ID
+                        Text("Ersteller-ID: ${produkt.erstellerId}") // Volle ID fuer Testzwecke
+                        Text("Lokal geändert: ${produkt.istLokalGeaendert}")
+                        Text("Zur Löschung vorgemerkt: ${produkt.istLoeschungVorgemerkt}")
+                        produkt.erstellungszeitpunkt?.let { Text("Erstellt: ${it}") }
+                        produkt.zuletztGeaendert?.let { Text("Zuletzt geändert: ${it}") }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End // Buttons rechts ausrichten
+                        ) {
+                            // Bearbeiten-Button (Stift-Symbol)
+                            IconButton(
+                                onClick = {
+                                    bearbeiteProdukt = produkt // Produkt zum Bearbeiten setzen
                                     produktName = produkt.name
                                     produktBeschreibung = produkt.beschreibung ?: ""
                                     produktKategorieId = produkt.kategorieId ?: ""
@@ -292,51 +320,20 @@ fun ProduktTestUI(
                                         snackbarHostState.showSnackbar("Produkt '${produkt.name}' zum Bearbeiten geladen.")
                                     }
                                 }
-                                .padding(16.dp)
-                        ) {
-                            Text("ID: ${produkt.produktId}") // Volle ID fuer Testzwecke
-                            Text("Name: ${produkt.name}")
-                            produkt.beschreibung?.let { Text("Beschreibung: $it") }
-                            val kategorieName = alleKategorien.find { it.kategorieId == produkt.kategorieId }?.name ?: "N/A"
-                            Text("Kategorie: ${kategorieName} (ID: ${produkt.kategorieId ?: "N/A"})") // Anzeige der Kategorie ID
-                            Text("Ersteller-ID: ${produkt.erstellerId}") // Volle ID fuer Testzwecke
-                            Text("Lokal geändert: ${produkt.istLokalGeaendert}")
-                            Text("Zur Löschung vorgemerkt: ${produkt.istLoeschungVorgemerkt}")
-                            produkt.erstellungszeitpunkt?.let { Text("Erstellt: ${it}") }
-                            produkt.zuletztGeaendert?.let { Text("Zuletzt geändert: ${it}") }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End // Buttons rechts ausrichten
                             ) {
-                                // Bearbeiten-Button (Stift-Symbol)
-                                IconButton(
-                                    onClick = {
-                                        bearbeiteProdukt = produkt // Produkt zum Bearbeiten setzen
-                                        produktName = produkt.name
-                                        produktBeschreibung = produkt.beschreibung ?: ""
-                                        produktKategorieId = produkt.kategorieId ?: ""
+                                Icon(Icons.Default.Create, contentDescription = "Bearbeiten")
+                            }
 
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Produkt '${produkt.name}' zum Bearbeiten geladen.")
-                                        }
+                            // Loeschen-Button (Soft Delete)
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        produktViewModel.produktZurLoeschungVormerken(produkt)
                                     }
-                                ) {
-                                    Icon(Icons.Default.Create, contentDescription = "Bearbeiten")
-                                }
-
-                                // Loeschen-Button (Soft Delete)
-                                Button(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            produktViewModel.produktZurLoeschungVormerken(produkt)
-                                        }
-                                    },
-                                    enabled = !produkt.istLoeschungVorgemerkt
-                                ) {
-                                    Text("Löschen")
-                                }
+                                },
+                                enabled = !produkt.istLoeschungVorgemerkt
+                            ) {
+                                Text("Löschen")
                             }
                         }
                     }

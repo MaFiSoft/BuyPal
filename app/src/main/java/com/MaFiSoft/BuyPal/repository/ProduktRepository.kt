@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/ProduktRepository.kt
-// Stand: 2025-06-27_12:07:02, Codezeilen: ~50 (Hinzugefuegt: getProdukteByKategorieSynchronous, isProduktLinkedToRelevantGroupViaKategorie)
+// Stand: 2025-07-06_09:30:00, Codezeilen: ~55 (Signatur von isProduktLinkedToRelevantGroupViaKategorie und isProduktLinkedToRelevantGroup angepasst, getProduktByIdSynchronous hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.repository
 
@@ -27,24 +27,31 @@ interface ProduktRepository {
     suspend fun getProdukteByKategorieSynchronous(kategorieId: String): List<ProduktEntitaet>
 
     /**
-     * Bestimmt, ob ein Produkt mit einer der relevanten Gruppen des Benutzers verknuepft ist.
-     * Dies ist ein kaskadierender Check: Produkt -> Artikel -> Einkaufsliste -> Gruppe.
-     *
-     * @param produktId Die ID des zu pruefenden Produkts.
-     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
-     * @return True, wenn das Produkt mit einer relevanter Gruppe verknuepft ist, sonst False.
+     * NEU: Synchrone Methode zum Abrufen eines Produkts nach ID (fuer interne Repository-Logik)
+     * @param produktId Die ID des abzurufenden Produkts.
+     * @return Die Produkt-Entitaet oder null, falls nicht gefunden.
      */
-    suspend fun isProduktLinkedToRelevantGroup(produktId: String, meineGruppenIds: List<String>): Boolean
+    suspend fun getProduktByIdSynchronous(produktId: String): ProduktEntitaet?
 
     /**
-     * NEU: Bestimmt, ob ein Produkt indirekt ueber eine Kategorie mit einer der relevanten Gruppen des Benutzers verknuepft ist.
-     * Dies ist ein kaskadierender Check: Kategorie -> Produkt -> Artikel -> Einkaufsliste -> Gruppe.
+     * NEU: Bestimmt, ob ein Produkt mit einer der relevanten Einkaufslisten des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Produkt -> Artikel -> Einkaufsliste.
+     *
+     * @param produktId Die ID des zu pruefenden Produkts.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn das Produkt mit einer relevanten Einkaufsliste verknuepft ist, sonst False.
+     */
+    suspend fun isProduktLinkedToRelevantGroup(produktId: String, aktuellerBenutzerId: String): Boolean
+
+    /**
+     * NEU: Bestimmt, ob ein Produkt indirekt ueber eine Kategorie mit einer der relevanten Einkaufslisten des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Kategorie -> Produkt -> Artikel -> Einkaufsliste.
      *
      * @param kategorieId Die ID der zu pruefenden Kategorie.
-     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
-     * @return True, wenn die Kategorie ueber ein Produkt mit einer relevanter Gruppe verknuepft ist, sonst False.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn ein Produkt dieser Kategorie mit einer relevanten Einkaufsliste verknuepft ist, sonst False.
      */
-    suspend fun isProduktLinkedToRelevantGroupViaKategorie(kategorieId: String, meineGruppenIds: List<String>): Boolean
+    suspend fun isProduktLinkedToRelevantGroupViaKategorie(kategorieId: String, aktuellerBenutzerId: String): Boolean
 
 
     /**

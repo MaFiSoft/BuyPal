@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/impl/ArtikelRepositoryImpl.kt
-// Stand: 2025-06-27_12:07:01, Codezeilen: ~690 (Hinzugefuegt: isArtikelPrivateAndOwnedBy, Pull-Sync-Logik angepasst)
+// Stand: 2025-07-06_08:45:00, Codezeilen: ~690 (Finaler Fix fuer getAlleOeffentlichenEinkaufslistenSynchronous und it-Fehler)
 
 package com.MaFiSoft.BuyPal.repository.impl
 
@@ -19,7 +19,6 @@ import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
 import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository
 import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
-import com.MaFiSoft.BuyPal.repository.GruppeRepository
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.QuerySnapshot
@@ -51,7 +50,6 @@ class ArtikelRepositoryImpl @Inject constructor(
     private val produktGeschaeftVerbindungRepositoryProvider: Provider<ProduktGeschaeftVerbindungRepository>,
     private val einkaufslisteRepositoryProvider: Provider<EinkaufslisteRepository>,
     private val benutzerRepositoryProvider: Provider<BenutzerRepository>,
-    private val gruppeRepositoryProvider: Provider<GruppeRepository>,
     private val firestore: FirebaseFirestore,
     private val context: Context
 ) : ArtikelRepository {
@@ -167,7 +165,7 @@ class ArtikelRepositoryImpl @Inject constructor(
     }
 
     /**
-     * NEU: Synchrone Methode zum Abrufen eines Artikels nach ID (fuer interne Repository-Logik)
+     * Synchrone Methode zum Abrufen eines Artikels nach ID (fuer interne Repository-Logik)
      * @param artikelId Die ID des abzurufenden Artikels.
      * @return Die Artikel-Entitaet oder null, falls nicht gefunden.
      */
@@ -221,19 +219,27 @@ class ArtikelRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Bestimmt, ob ein Artikel mit einer der relevanten Gruppen des Benutzers verknuepft ist.
-     * Dies ist ein kaskadierender Check: Artikel -> Einkaufsliste -> Gruppe.
+     * Bestimmt, ob ein Artikel mit einer der relevanten Einkaufslisten des Benutzers verknuepft ist.
+     * Dies ist ein kaskadierender Check: Artikel -> Einkaufsliste.
      *
      * @param artikelId Die ID des zu pruefenden Artikels.
-     * @param meineGruppenIds Die Liste der Gruppen-IDs, in denen der aktuelle Benutzer Mitglied ist.
-     * @return True, wenn der Artikel mit einer relevanten Gruppe verknuepft ist, sonst False.
+     * @param aktuellerBenutzerId Die ID des aktuell angemeldeten Benutzers.
+     * @return True, wenn der Artikel mit einer relevanten Einkaufsliste verknuepft ist, sonst False.
      */
-    override suspend fun isArtikelLinkedToRelevantGroup(artikelId: String, meineGruppenIds: List<String>): Boolean {
+    override suspend fun isArtikelLinkedToRelevantGroup(artikelId: String, aktuellerBenutzerId: String): Boolean {
         val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
 
-        val artikel = artikelDao.getArtikelByIdSynchronous(artikelId) // Synchrone Abfrage des Artikels
+        val artikel = artikelDao.getArtikelByIdSynchronous(artikelId)
         artikel?.einkaufslisteId?.let { einkaufslisteId ->
-            return einkaufslisteRepo.isEinkaufslisteLinkedToRelevantGroup(einkaufslisteId, meineGruppenIds)
+            val einkaufsliste = einkaufslisteRepo.getEinkaufslisteByIdSynchronous(einkaufslisteId)
+            return if (einkaufsliste != null) {
+                // Ein Artikel ist relevant, wenn seine Einkaufsliste entweder oeffentlich ist und der Benutzer Mitglied ist,
+                // ODER wenn die Einkaufsliste privat ist und dem Benutzer gehoert.
+                (einkaufsliste.istOeffentlich && einkaufsliste.mitgliederIds.contains(aktuellerBenutzerId)) ||
+                        (!einkaufsliste.istOeffentlich && einkaufsliste.erstellerId == aktuellerBenutzerId)
+            } else {
+                false
+            }
         }
         return false
     }
@@ -286,8 +292,8 @@ class ArtikelRepositoryImpl @Inject constructor(
     /**
      * Synchronisiert Artikeldaten zwischen Room und Firestore.
      * Implementiert eine Room-first-Strategie mit Konfliktloesung (Last-Write-Wins).
-     * Die Synchronisation erfolgt nur fuer Artikel, die mit einer Gruppe verknuepft sind,
-     * in der der Benutzer Mitglied ist.
+     * Die Synchronisation erfolgt nur fuer Artikel, die mit einer Einkaufsliste verknuepft sind,
+     * welche wiederum fuer den aktuellen Benutzer relevant ist (entweder durch Gruppenzugehoerigkeit oder privat).
      */
     override suspend fun syncArtikelDaten() {
         if (!isOnline()) {
@@ -303,17 +309,25 @@ class ArtikelRepositoryImpl @Inject constructor(
             return
         }
 
-        val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
-            .firstOrNull()
-            ?.map { it.gruppeId }
-            ?: emptyList()
-
-        Timber.d("$TAG: Relevante Gruppe-IDs fuer Artikel-Sync: $meineGruppenIds")
-
         // Hilfsfunktion zur Bestimmung der Relevanz eines Artikels fuer den Push/Pull
         val isArtikelRelevantForSync: suspend (ArtikelEntitaet) -> Boolean = { artikel ->
-            this.isArtikelLinkedToRelevantGroup(artikel.artikelId, meineGruppenIds) ||
-                    this.isArtikelPrivateAndOwnedBy(artikel.artikelId, aktuellerBenutzerId) // NEU: Auch private, eigene Artikel sind relevant
+            // Ein Artikel ist relevant, wenn seine Einkaufsliste entweder oeffentlich ist und der Benutzer Mitglied ist,
+            // oder wenn die Einkaufsliste privat ist und dem Benutzer gehoert.
+            artikel.einkaufslisteId?.let { einkaufslisteId ->
+                val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
+                val einkaufsliste = einkaufslisteRepo.getEinkaufslisteByIdSynchronous(einkaufslisteId)
+
+                if (einkaufsliste != null) {
+                    // Wenn die Einkaufsliste oeffentlich ist und der Benutzer Mitglied ist
+                    val istOeffentlichUndMitglied = einkaufsliste.istOeffentlich && einkaufsliste.mitgliederIds.contains(aktuellerBenutzerId)
+                    // Oder wenn die Einkaufsliste privat ist und dem Benutzer gehoert
+                    val istPrivatUndEigentum = !einkaufsliste.istOeffentlich && einkaufsliste.erstellerId == aktuellerBenutzerId
+
+                    istOeffentlichUndMitglied || istPrivatUndEigentum
+                } else {
+                    false // Einkaufsliste nicht gefunden, Artikel ist nicht relevant
+                }
+            } ?: false // Keine Einkaufsliste-ID, nicht relevant
         }
 
         // --- PUSH: Lokale Aenderungen zu Firestore ---
@@ -336,7 +350,7 @@ class ArtikelRepositoryImpl @Inject constructor(
                             Timber.d("$TAG: Sync Push: Artikel '${lokalerArtikel.name}' (ID: ${lokalerArtikel.artikelId}) lokal endgueltig geloescht.")
                         }
                     } else {
-                        Timber.d("$TAG: Sync Push: Artikel '${lokalerArtikel.name}' (ID: ${lokalerArtikel.artikelId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Kein Firestore-Vorgang. Setze istLokalGeaendert zurueck.")
+                        Timber.d("$TAG: Sync Push: Artikel '${lokalerArtikel.name}' (ID: ${lokalerArtikel.artikelId}) ist zur Loeschung vorgemerkt, aber nicht relevant fuer Cloud-Sync (keine Einkaufslisten-Verbindung fuer diesen Benutzer). Kein Firestore-Vorgang. Setze istLokalGeaendert zurueck.")
                         artikelDao.artikelAktualisieren(lokalerArtikel.copy(istLokalGeaendert = false))
                     }
                 } else { // Artikel ist nicht zur Loeschung vorgemerkt
@@ -369,7 +383,7 @@ class ArtikelRepositoryImpl @Inject constructor(
                             Timber.d("$TAG: Sync Push: Artikel '${lokalerArtikel.name}' (ID: ${lokalerArtikel.artikelId}) in Firestore neuer oder gleich. Lokale Aenderung uebersprungen, wird im Pull behandelt.")
                         }
                     } else {
-                        Timber.d("$TAG: Sync Push: Artikel '${lokalerArtikel.name}' (ID: ${lokalerArtikel.artikelId}) ist nicht relevant fuer Cloud-Sync (keine Gruppenverbindung UND nicht privat/eigen). Kein Push zu Firestore. Setze istLokalGeaendert zurueck.")
+                        Timber.d("$TAG: Sync Push: Artikel '${lokalerArtikel.name}' (ID: ${lokalerArtikel.artikelId}) ist nicht relevant fuer Cloud-Sync (keine Einkaufslisten-Verbindung fuer diesen Benutzer). Kein Push zu Firestore. Setze istLokalGeaendert zurueck.")
                         artikelDao.artikelAktualisieren(lokalerArtikel.copy(istLokalGeaendert = false))
                     }
                 }
@@ -379,7 +393,6 @@ class ArtikelRepositoryImpl @Inject constructor(
             Timber.e(e, "$TAG: Sync Push: FEHLER beim Hochladen und Synchronisieren von Artikeln zu Firestore: ${e.message}")
         }
 
-        // NEU: Perform Pull Sync wird nun hier aufgerufen, nicht direkt am Ende der Datei.
         performPullSync()
         Timber.d("$TAG: Sync Pull: Synchronisation der Artikeldaten abgeschlossen.")
     }
@@ -387,10 +400,9 @@ class ArtikelRepositoryImpl @Inject constructor(
     /**
      * Fuehrt den Pull-Synchronisationsprozess fuer Artikel aus.
      * Zieht Artikel von Firestore herunter, die mit Einkaufslisten verknuepft sind,
-     * welche wiederum fuer den aktuellen Benutzer aufgrund seiner Gruppenzugehoerigkeit relevant sind.
-     * Die erstellerId des Artikels ist fuer die Sync-Entscheidung irrelevant.
+     * welche wiederum fuer den aktuellen Benutzer relevant sind (entweder durch Gruppenzugehoerigkeit oder privat).
      */
-    private suspend fun performPullSync() { // KORRIGIERT: performPullSync() Definition hinzugefuegt
+    private suspend fun performPullSync() {
         Timber.d("$TAG: performPullSync aufgerufen.")
         try {
             val aktuellerBenutzer = benutzerRepositoryProvider.get().getAktuellerBenutzer().firstOrNull()
@@ -399,26 +411,19 @@ class ArtikelRepositoryImpl @Inject constructor(
                 return
             }
 
-            val meineGruppenIds = gruppeRepositoryProvider.get().getGruppenByMitgliedId(aktuellerBenutzerId)
-                .firstOrNull()
-                ?.map { it.gruppeId }
-                ?: emptyList()
-
             val einkaufslisteRepo = einkaufslisteRepositoryProvider.get()
 
-            // Schritt 1: Sammle alle relevanten Einkaufslisten-IDs basierend auf Gruppenverknuepfung
+            // Schritt 1: Sammle alle relevanten Einkaufslisten-IDs
             val relevantEinkaufslistenIds = mutableSetOf<String>()
 
-            for (gruppeId in meineGruppenIds) {
-                val einkaufslistenInGruppe = einkaufslisteRepo.getEinkaufslistenByGruppeIdSynchronous(gruppeId)
-                relevantEinkaufslistenIds.addAll(einkaufslistenInGruppe.map { it.einkaufslisteId })
-            }
+            // Hole alle oeffentlichen Einkaufslisten synchron
+            val oeffentlicheEinkaufslisten = einkaufslisteRepo.getAlleOeffentlichenEinkaufslistenSynchronous()
+            oeffentlicheEinkaufslisten.filter { it.mitgliederIds.contains(aktuellerBenutzerId) }.map { it.einkaufslisteId }.let { relevantEinkaufslistenIds.addAll(it) }
 
-            // NEU: Fuege IDs von privaten Einkaufslisten des aktuellen Benutzers hinzu
-            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslisten().firstOrNull() ?: emptyList()
-            privateEinkaufslisten.filter { it.erstellerId == aktuellerBenutzerId && it.gruppeId == null }
-                .map { it.einkaufslisteId }
-                .let { relevantEinkaufslistenIds.addAll(it) }
+            // Hole alle privaten Einkaufslisten synchron
+            val privateEinkaufslisten = einkaufslisteRepo.getAllEinkaufslistenSynchronous()
+            privateEinkaufslisten.filter { !it.istOeffentlich && it.erstellerId == aktuellerBenutzerId }.map { it.einkaufslisteId }.let { relevantEinkaufslistenIds.addAll(it) }
+
 
             Timber.d("$TAG: Sync Pull: Relevante Einkaufslisten-IDs fuer Artikel-Pull (inkl. privater): $relevantEinkaufslistenIds")
 
@@ -459,9 +464,15 @@ class ArtikelRepositoryImpl @Inject constructor(
                     Timber.d("$TAG: Sync Pull: Artikel '${cloudArtikel.name}' (ID: ${cloudArtikel.artikelId}) von Firestore heruntergeladen/aktualisiert.")
 
                     // NEU: Trigger Kaskadierung nach Pull, falls relevant
-                    // KORRIGIERT: isArtikelLinkedToRelevantGroup anstatt isArtikelRelevantForSync
-                    if (isArtikelLinkedToRelevantGroup(cloudArtikel.artikelId, meineGruppenIds) || isArtikelPrivateAndOwnedBy(cloudArtikel.artikelId, aktuellerBenutzerId)) {
-                        triggerAbhaengigeEntitaetenSync(cloudArtikel)
+                    // Die Relevanz wird hier direkt ueber die Einkaufsliste geprueft
+                    // Verwende getEinkaufslisteByIdSynchronous für den synchronen Abruf
+                    val einkaufsliste = einkaufslisteRepo.getEinkaufslisteByIdSynchronous(cloudArtikel.einkaufslisteId!!)
+                    if (einkaufsliste != null) {
+                        val istOeffentlichUndMitglied = einkaufsliste.istOeffentlich && einkaufsliste.mitgliederIds.contains(aktuellerBenutzerId)
+                        val istPrivatUndEigentum = !einkaufsliste.istOeffentlich && einkaufsliste.erstellerId == aktuellerBenutzerId
+                        if (istOeffentlichUndMitglied || istPrivatUndEigentum) {
+                            triggerAbhaengigeEntitaetenSync(cloudArtikel)
+                        }
                     }
 
                 } else {
@@ -471,20 +482,29 @@ class ArtikelRepositoryImpl @Inject constructor(
 
             val uniqueFirestoreArtikelIds = uniqueFirestoreArtikel.map { it.artikelId }.toSet()
             for (localArtikel in allLocalArtikel) {
-                // KORRIGIERT: Aufruf der privaten Member-Funktion
-                val istRelevantFuerBenutzer = isArtikelLinkedToRelevantGroup(localArtikel.artikelId, meineGruppenIds) ||
-                        isArtikelPrivateAndOwnedBy(localArtikel.artikelId, aktuellerBenutzerId) // NEU: Auch private, eigene Artikel sind relevant
+                // Bestimme die Relevanz des lokalen Artikels
+                val istRelevantFuerBenutzer = localArtikel.einkaufslisteId?.let { einkaufslisteId ->
+                    // Verwende getEinkaufslisteByIdSynchronous für den synchronen Abruf
+                    val einkaufsliste = einkaufslisteRepo.getEinkaufslisteByIdSynchronous(einkaufslisteId)
+                    if (einkaufsliste != null) {
+                        val istOeffentlichUndMitglied = einkaufsliste.istOeffentlich && einkaufsliste.mitgliederIds.contains(aktuellerBenutzerId)
+                        val istPrivatUndEigentum = !einkaufsliste.istOeffentlich && einkaufsliste.erstellerId == aktuellerBenutzerId
+                        istOeffentlichUndMitglied || istPrivatUndEigentum
+                    } else {
+                        false
+                    }
+                } ?: false
 
                 // Lokaler Artikel loeschen, wenn er nicht mehr in Firestore vorhanden ist
                 // UND nicht lokal geaendert/vorgemerkt ist
-                // UND nicht relevant fuer diesen Benutzer ist (keine Gruppenverbindung UND nicht privat/eigen)
+                // UND nicht relevant fuer diesen Benutzer ist (keine Einkaufslisten-Verbindung fuer diesen Benutzer)
                 if (!uniqueFirestoreArtikelIds.contains(localArtikel.artikelId) &&
                     !localArtikel.istLoeschungVorgemerkt && !localArtikel.istLokalGeaendert &&
                     !istRelevantFuerBenutzer) {
                     artikelDao.deleteArtikelById(localArtikel.artikelId)
                     Timber.d("$TAG: Sync Pull: Lokaler Artikel ${localArtikel.name} (ID: ${localArtikel.artikelId}) GELÖSCHT, da nicht mehr in Firestore vorhanden UND nicht relevant fuer diesen Benutzer UND lokal synchronisiert war.")
                 } else if (istRelevantFuerBenutzer) {
-                    Timber.d("$TAG: Sync Pull: Lokaler Artikel ${localArtikel.name} (ID: ${localArtikel.artikelId}) BLEIBT LOKAL, da er noch fuer diesen Benutzer relevant ist (mit relevanter Gruppe verbunden ODER privat/eigen).")
+                    Timber.d("$TAG: Sync Pull: Lokaler Artikel ${localArtikel.name} (ID: ${localArtikel.artikelId}) BLEIBT LOKAL, da er noch fuer diesen Benutzer relevant ist (mit relevanter Einkaufsliste verbunden ODER privat/eigen).")
                 } else {
                     Timber.d("$TAG: Sync Pull: Lokaler Artikel ${localArtikel.name} (ID: ${localArtikel.artikelId}) BLEIBT LOKAL (Grund: ${if(localArtikel.istLokalGeaendert) "lokal geaendert" else if (localArtikel.istLoeschungVorgemerkt) "zur Loeschung vorgemerkt" else "nicht remote gefunden, aber dennoch lokal behalten, da er nicht als nicht-relevant identifiziert wurde."}).")
                 }
