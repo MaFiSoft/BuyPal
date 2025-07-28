@@ -138,4 +138,7 @@ dependencies {
 
     //NEU für Farbschema-Auswahl
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+
+    // KORREKTUR: compose-reorderable Library von Maven Central
+    implementation("org.burnoutcrew.composereorderable:reorderable:0.9.6")
 }

@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/data/KategorieEntitaet.kt
-// Stand: 2025-06-23_21:25:00, Codezeilen: ~35 (istOeffentlich-Flag entfernt)
+// Stand: 2025-07-14_21:00:00, Codezeilen: ~35 (reihenfolge-Feld mit @get:Exclude)
 
 package com.MaFiSoft.BuyPal.data
 
@@ -36,13 +36,13 @@ data class KategorieEntitaet(
     val beschreibung: String? = null,
     val bildUrl: String? = null,
     val elternKategorieId: String? = null,
+    @get:Exclude // NEU: reihenfolge soll NICHT in Firestore gespeichert werden, nur lokal.
     val reihenfolge: Int? = null,
     val icon: String? = null,
     val erstellerId: String? = null, // Die ID des Benutzers, der diese Kategorie erstellt hat.
     @ServerTimestamp
     val erstellungszeitpunkt: Date? = null,
     val zuletztGeaendert: Date? = null, // Zeitstempel fuer Last-Write-Wins (wird manuell/automatisch gesetzt)
-    // val istOeffentlich: Boolean = false, // ENTFERNT: Die Oeffentlichkeit ergibt sich aus der Verwendung in Gruppen-Einkaufslisten
     @get:Exclude // Diese Felder sollen NICHT in Firestore gespeichert werden, nur lokal.
     val istLokalGeaendert: Boolean = false, // Flag, um zu wissen, ob Sync noetig ist
     @get:Exclude // Diese Felder sollen NICHT in Firestore gespeichert werden, nur lokal.

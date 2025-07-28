@@ -16,6 +16,9 @@ sealed class Screen(val route: String) {
     object GeschaeftVerwaltung : Screen("geschaeft_verwaltung")
     object EinkaufslisteVerwaltung : Screen("einkaufsliste_verwaltung") // Beibehalten fuer den Einzel-Test
     object ProduktGeschaeftVerbindung : Screen("produkt_geschaeft_verbindung_screen")
+    // NEU: Route fuer die ReorderableTestUI
+    object ReorderableTest : Screen("reorderable_test_screen")
+
     // ENTFERNT: BenutzerEinkaufslisteVerwaltung und GruppeVerwaltung, da nicht mehr benoetigt
     // object BenutzerEinkaufslisteVerwaltung : Screen("benutzer_einkaufsliste_verwaltung_screen")
     // object GruppeVerwaltung : Screen("gruppe_verwaltung") // War schon entfernt, hier zur Klarheit

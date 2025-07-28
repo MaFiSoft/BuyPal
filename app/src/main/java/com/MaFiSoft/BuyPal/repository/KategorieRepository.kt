@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/repository/KategorieRepository.kt
-// Stand: 2025-06-26_22:08:00, Codezeilen: ~50 (Hinzugefuegt: isKategoriePrivateAndOwnedBy)
+// Stand: 2025-07-14_21:35:00, Codezeilen: ~55 (Migrationsfunktion hinzugefuegt)
 
 package com.MaFiSoft.BuyPal.repository
 

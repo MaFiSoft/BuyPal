@@ -1,5 +1,5 @@
 // app/src/main/java/com/MaFiSoft/BuyPal/presentation/viewmodel/BenutzerViewModel.kt
-// Stand: 2025-07-06_06:40:00, Codezeilen: ~190 (loescheBenutzerKonto Aufruf entfernt)
+// Stand: 2025-07-14_21:35:00, Codezeilen: ~170 (KategorieRepository injiziert und Migrationstrigger)
 
 package com.MaFiSoft.BuyPal.presentation.viewmodel
 
@@ -7,24 +7,26 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.MaFiSoft.BuyPal.data.BenutzerEntitaet
 import com.MaFiSoft.BuyPal.repository.BenutzerRepository
+import com.MaFiSoft.BuyPal.repository.KategorieRepository // NEU: Import fuer KategorieRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.firstOrNull
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.util.Date
+import java.util.UUID
 import javax.inject.Inject
 
 // Importe fuer Repositories der zu migrierenden Entitaeten (werden in App-Modul injiziert)
 import com.MaFiSoft.BuyPal.repository.ArtikelRepository
 import com.MaFiSoft.BuyPal.repository.EinkaufslisteRepository
 import com.MaFiSoft.BuyPal.repository.GeschaeftRepository
-import com.MaFiSoft.BuyPal.repository.KategorieRepository
 import com.MaFiSoft.BuyPal.repository.ProduktRepository
 import com.MaFiSoft.BuyPal.repository.ProduktGeschaeftVerbindungRepository
 
@@ -35,7 +37,7 @@ class BenutzerViewModel @Inject constructor(
     private val artikelRepository: ArtikelRepository,
     private val einkaufslisteRepository: EinkaufslisteRepository,
     private val geschaeftRepository: GeschaeftRepository,
-    private val kategorieRepository: KategorieRepository,
+    private val kategorieRepository: KategorieRepository, // NEU: KategorieRepository injizieren
     private val produktRepository: ProduktRepository,
     private val produktGeschaeftVerbindungRepository: ProduktGeschaeftVerbindungRepository
 ) : ViewModel() {
@@ -61,8 +63,8 @@ class BenutzerViewModel @Inject constructor(
 
     /**
      * Registriert einen neuen Benutzer.
-     * @param benutzername Der Benutzername.
-     * @param pin Die PIN/das Passwort.
+     * @param benutzername Der gewuenschte Benutzername.
+     * @param pin Die gewuenschte PIN.
      */
     fun registrieren(benutzername: String, pin: String) {
         viewModelScope.launch {
